@@ -68,6 +68,7 @@
 | 27 | Sans voix captée, rien ne change : l'échéance tombe au délai réglé (deux secondes par défaut) et la demande part. | `src/js/fin-ecoute-repoussee-par-la-voix.test.js` :: sans voix, l'echeance tombe au delai regle — le comportement d'avant est intact |
 | 28 | Le message Telegram de l'assistant nomme le projet dont il est QUESTION, jamais celui qui est simplement ouvert à l'écran (le projet ouvert ne sert que par défaut, « Assistant » si rien n'est identifiable). | `src/js/etiquette-telegram-projet-reel.test.js` :: VERROU : MakeFilm ouvert, travail réel sur Pilot → « pilot », jamais « MakeFilm » |
 | 29 | Pendant la veille, l'écran le dit : la ligne qui demande le nom reste visible et le cercle prend l'aspect de l'attente. | `src/js/ecran-vocal-veille-affichee.test.js` :: l'exception ne rend visible que la ligne d'etat, et le dit en clair |
+| 30 | L'oreille intégrée Whisper est livrée sur Windows seulement : les fabrications macOS ne la compilent pas, et sa branche Apple est tout de même compilée à part, avant toute publication, avec son journal. | `src/js/oreille-integree-whisper-livraison.test.js` :: AUCUNE cible Apple ne le porte (confinement du 2026-11-16) |
 
 ## Ce que le garde-fou vérifie
 

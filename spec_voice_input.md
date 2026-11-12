@@ -727,17 +727,31 @@ utilisant un modèle présent sur le disque et fonctionnant **hors ligne**.
    voisin du final, reprise par `Range`, pourcentage borné, arrêt qui ne supprime
    **rien**, renommage seulement à taille exacte. L'agent ne télécharge jamais
    rien de lui-même.
-8. **La feature Cargo est optionnelle, et ACTIVE dans les livraisons** :
-   `whisper-rs` n'est compilé que par `cargo build --features whisper` —
-   `default = []` ne change pas (un build sans drapeau reste vert, et c'est ce
-   que lancent `cargo test` et le job `test`). Le job `build` de
-   `.github/workflows/release.yml` **pose désormais le drapeau**
-   (`args: --target <cible> --features whisper`), donc l'application INSTALLÉE
-   sur les trois plateformes publiées (Windows, macOS arm64, macOS x64) contient
-   le moteur — sinon la fonctionnalité n'existait que dans le code (décision de
-   livraison du 2026-11-16, `RAPPORT-oreille-integree-whisper-livraison.md`).
-   Sans elle (build local, Linux), le module **compile quand même** et répond
-   `moteur-non-compile` avec une phrase française : jamais un échec de
+8. **La feature Cargo est optionnelle, et ACTIVE sur WINDOWS dans les
+   livraisons** : `whisper-rs` n'est compilé que par
+   `cargo build --features whisper` — `default = []` ne change pas (un build
+   sans drapeau reste vert, et c'est ce que lancent `cargo test` et le job
+   `test`). Le job `build` de `.github/workflows/release.yml` **pose le
+   drapeau, mais sur la SEULE cible Windows** (`args: --target <cible>
+   ${{ matrix.rust_features }}`, la clé `rust_features` n'existant que sur la
+   ligne `windows-latest`) :
+   - **l'application INSTALLÉE sous Windows contient le moteur** — sinon la
+     fonctionnalité n'existait que dans le code (décision de livraison du
+     2026-11-16, `RAPPORT-oreille-integree-whisper-livraison.md`) ;
+   - **l'oreille intégrée est RÉSERVÉE À WINDOWS pour l'instant** : les deux
+     fabrications macOS de la **0.6.25** ont échoué en fin de compilation avec
+     le drapeau (branche Apple de `whisper.cpp` — Accelerate, BLAS Apple,
+     noyaux ILP64 — jamais compilée auparavant, journal d'échec illisible).
+     Décision du même jour : **confinement à Windows**, sans toucher un seul
+     réglage de la chaîne C++ au jugé. macOS redevient donc exactement ce
+     qu'il était en 0.6.24 (vert), et **la branche Apple reste compilée à
+     part**, avant toute publication, par le job `check-macos-whisper` de
+     `.github/workflows/quality-gate.yml` (toléré à l'échec, sans installateur
+     ni signature, journal déposé en artefact) : le confinement n'est pas un
+     angle mort. Rapport :
+     `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`.
+   Sans elle (build local, Linux, macOS), le module **compile quand même** et
+   répond `moteur-non-compile` avec une phrase française : jamais un échec de
    compilation, jamais un silence.
    **Elle compile sans rien installer** (correctif du 2026-11-16) : la caisse
    `whisper-rs-sys` exigeait `libclang` (bindgen, dont le chargeur panique quand
@@ -760,12 +774,15 @@ compilation, les liaisons sont neutres de plateforme, la feature reste
 optionnelle, la preuve de liaison existe, et l'annonce des chemins de liaison
 reste filtrée — sans ce filtre, le `PATH` des binaires lancés par cargo
 dépassait 8 191 caractères et quatre tests tombaient sous `--features whisper`) et
-`src/js/oreille-integree-whisper-livraison.test.js` (le drapeau est posé sur les
-**trois** cibles du job `build`, la feature reste `default = []`, le journal de
-publication ne peut plus perdre le drapeau). Rapports :
+`src/js/oreille-integree-whisper-livraison.test.js` (le drapeau est posé sur la
+seule cible **Windows** du job `build` — **confinement à Windows** du
+2026-11-16, aucune cible Apple ne le porte —, la feature reste `default = []`,
+le journal de publication ne peut plus perdre le drapeau, et la branche Apple
+reste compilée avant publication par `check-macos-whisper`). Rapports :
 `docs/rapports/RAPPORT-oreille-integree-whisper.md`,
-`docs/rapports/RAPPORT-oreille-integree-whisper-deblocage.md` et
-`docs/rapports/RAPPORT-oreille-integree-whisper-livraison.md`.
+`docs/rapports/RAPPORT-oreille-integree-whisper-deblocage.md`,
+`docs/rapports/RAPPORT-oreille-integree-whisper-livraison.md` et
+`docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`.
 
 ---
 
@@ -847,7 +864,11 @@ texte à la voix.
   n'efface aucun fichier. Tant que le modèle n'est pas installé (ou si le moteur
   n'est pas compilé dans votre version), Pilot **vous le dit** et revient à la
   dictée du navigateur — jamais en silence. Laisser le réglage sur « Service de
-  voix local » ne change **rien** à ce que vous connaissiez.
+  voix local » ne change **rien** à ce que vous connaissiez. **Pour l'instant, le
+  moteur intégré n'est livré que dans la version Windows de Pilot** : sous macOS,
+  le réglage reste proposé mais Pilot annonce que le moteur n'est pas compilé
+  dans cette version, et revient à la dictée du navigateur — le même message, la
+  même phrase, aucun silence et rien de cassé.
 - **Avec la transcription locale, la mise en veille de 20 secondes marche comme
   avant** : au bout de 20 s sans parler, l'écran se met en veille et attend son nom.
   Avant, la veille ne s'armait **jamais** quand la transcription locale était

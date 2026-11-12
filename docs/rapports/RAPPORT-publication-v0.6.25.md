@@ -256,3 +256,11 @@ a96782f37efbd661cedfccc4eec3a91d9309d7ae40644b70d00c66d3de49bd99  bundle/msi/Pil
 Ceinture de sécurité respectée : **aucun tag déplacé ni republié**, **aucun
 secret touché**, **aucun fichier de l'utilisateur supprimé**, **aucun code de
 comportement modifié**.
+
+---
+
+**Suite de ce rapport** : le confinement du moteur d'écoute intégré à Windows et
+le contrôle de compilation macOS qui l'accompagne sont décrits dans
+`docs/rapports/RAPPORT-oreille-integree-macos-confinement.md` (décision du
+2026-11-16). Le présent rapport reste le constat de la publication 0.6.25 : il
+n'est pas réécrit.

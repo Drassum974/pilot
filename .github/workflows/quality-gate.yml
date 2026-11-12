@@ -21,9 +21,18 @@ name: quality-gate
 #     reste entièrement décrite dans `release.yml`, et
 #     `scripts/release-workflow.test.js` continue de la verrouiller.
 #
-# Un seul système d'exploitation ici (`ubuntu-22.04`) : c'est le contrôle
-# MINIMAL demandé. Les trois systèmes sont déjà couverts par le job `test` de
-# `release.yml`, qui tourne avant toute publication.
+# UNE SECONDE CHOSE DEPUIS LE 2026-11-16, et une seule : le job
+# `check-macos-whisper` COMPILE la branche Apple du moteur d'écoute intégré
+# (`--features whisper`) et dépose son journal. Il ne lance AUCUN test, il ne
+# fabrique rien, et il est toléré à l'échec : l'oreille intégrée n'est livrée
+# que sur Windows aujourd'hui (confinement de la 0.6.26, rapport
+# `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`), mais sa branche
+# Apple ne doit plus jamais être découverte cassée le jour d'une publication.
+# Ce job est hors du chemin critique de publication.
+#
+# Un seul système d'exploitation pour les TESTS (`ubuntu-22.04`) : c'est le
+# contrôle MINIMAL demandé. Les trois systèmes sont déjà couverts par le job
+# `test` de `release.yml`, qui tourne avant toute publication.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -109,3 +118,87 @@ jobs:
 
       - name: Run JS unit tests (Vitest)
         run: npm test
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # check-macos-whisper — LA BRANCHE APPLE DU MOTEUR D'ÉCOUTE EST COMPILÉE ICI,
+  # AVANT TOUTE PUBLICATION.
+  #
+  # Pourquoi ce job existe (décision du 2026-11-16, rapport
+  # `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`) : la 0.6.25 a
+  # posé `--features whisper` sur trois cibles et les DEUX fabrications macOS
+  # ont échoué en fin de compilation — la branche Apple de `whisper.cpp`
+  # (Accelerate, BLAS Apple, noyaux ILP64) n'avait jamais été compilée, AUCUN
+  # job de contrôle ne la compilait, et le journal de l'échec n'était pas
+  # lisible : la cause est restée supposée. La feature est donc désormais
+  # confinée à Windows dans la fabrication de publication (release.yml), et la
+  # branche Apple est compilée ICI, à chaque proposition et à chaque poussée sur
+  # `main` : le premier échec donne le texte exact du compilateur, déposé en
+  # artefact, au lieu d'une supposition.
+  #
+  # Ce que ce job fait : la MÊME compilation que la publication (profil
+  # `release`, même drapeau `--features whisper`, même caisse
+  # `whisper-rs-sys` patchée), mais SANS installateur, SANS signature, SANS
+  # Release, SANS secret, et sans machine du chemin critique de publication.
+  # Il ne lance AUCUN test : les suites restent entièrement dans `tests`, dont
+  # le verdict est le seul qui compte.
+  #
+  # Ce qu'il ne peut pas faire : rendre une proposition rouge. L'oreille
+  # intégrée n'est pas livrée sur macOS aujourd'hui ; un échec ici doit
+  # APPORTER UN JOURNAL, pas empêcher de travailler (même choix assumé que le
+  # job `test-macos` de `release.yml`). C'est aussi la seule dérogation à la
+  # règle « aucun continue-on-error » de ce fichier : elle est écrite, bornée à
+  # ce job, et vérifiée par `scripts/quality-gate-workflow.test.js`.
+  #
+  # Aucun cache Rust volontairement : le budget de cache du dépôt (10 Go) est
+  # tenu par les cibles de publication, et ce job est hors du chemin critique.
+  # ───────────────────────────────────────────────────────────────────────────
+  check-macos-whisper:
+    runs-on: macos-latest
+    # Compilation à froid de l'application + la chaîne C++ : large, sans être
+    # infini (un job suspendu ne doit pas rester ouvert).
+    timeout-minutes: 60
+    # TOLÉRÉ : un échec ici informe (journal en artefact), il ne bloque rien.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install npm deps
+        run: npm ci --prefer-offline
+
+      - name: Generate MCP bundle (build:mcp)
+        # Même prérequis que partout ailleurs : `pilot-mcp-client.ts` est exclu
+        # du dépôt mais embarqué par include_str! — sans lui, la compilation
+        # Rust échoue pour une raison qui n'a RIEN à voir avec le moteur.
+        run: npm run build:mcp
+
+      - name: Compile the integrated ear (Apple silicon, journal kept)
+        # `--release` : même profil que la publication. `--features whisper` :
+        # la feature qui embarque `whisper-rs` → `whisper-rs-sys` →
+        # `whisper.cpp` (la chaîne C++ qui échouait sur macOS). Sans
+        # `tauri/custom-protocol`, la compilation ne réclame pas `dist/` (les
+        # actifs du front ne sont embarqués que pour la fabrication du paquet) :
+        # ce job n'a donc besoin ni du front bâti, ni du service Laya.
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo build --manifest-path src-tauri/Cargo.toml --release \
+            --features whisper 2>&1 | tee whisper-macos-build.log
+
+      - name: Keep the compilation log (always, pass or fail)
+        # LA raison d'être du job : le journal complet, lisible après coup depuis
+        # l'onglet *Actions* du run, sans authentification supplémentaire.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-macos-build-log
+          path: whisper-macos-build.log
+          if-no-files-found: warn
+          retention-days: 30

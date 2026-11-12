@@ -1509,7 +1509,11 @@ texte à la voix.
   n'efface aucun fichier. Tant que le modèle n'est pas installé (ou si le moteur
   n'est pas compilé dans votre version), Pilot **vous le dit** et revient à la
   dictée du navigateur — jamais en silence. Laisser le réglage sur « Service de
-  voix local » ne change **rien** à ce que vous connaissiez.
+  voix local » ne change **rien** à ce que vous connaissiez. **Pour l'instant, le
+  moteur intégré n'est livré que dans la version Windows de Pilot** : sous macOS,
+  le réglage reste proposé mais Pilot annonce que le moteur n'est pas compilé
+  dans cette version, et revient à la dictée du navigateur — le même message, la
+  même phrase, aucun silence et rien de cassé.
 - **Avec la transcription locale, la mise en veille de 20 secondes marche comme
   avant** : au bout de 20 s sans parler, l'écran se met en veille et attend son nom.
   Avant, la veille ne s'armait **jamais** quand la transcription locale était

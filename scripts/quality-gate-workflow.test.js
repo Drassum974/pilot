@@ -8,12 +8,16 @@
 // rester sur la branche principale jusqu'au tag — donc jusqu'aux utilisateurs
 // installes.
 //
-// Ce fichier verifie trois choses, dans cet ordre :
+// Ce fichier verifie quatre choses, dans cet ordre :
 //   1. le controle EXISTE et se declenche sur les propositions ET sur `main` ;
-//   2. il ECHOUE quand les tests echouent (aucun `continue-on-error`, aucune
-//      etape conditionnee) ;
+//   2. il ECHOUE quand les tests echouent (aucun `continue-on-error` sur le job
+//      de tests, aucune etape conditionnee) ;
 //   3. il ne peut RIEN publier (aucune permission d'ecriture, aucun secret, et
-//      la topologie de `release.yml` reste intacte).
+//      la topologie de `release.yml` reste intacte) ;
+//   4. le controle de compilation de la branche APPLE du moteur d'ecoute
+//      (`check-macos-whisper`) existe, est le SEUL job tolerant a l'echec, ne
+//      lance aucun test et depose TOUJOURS son journal en artefact (decision du
+//      2026-11-16, `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`).
 //
 // Preuve par mutation : ajouter `continue-on-error: true` dans ce fichier, ou
 // retirer le declencheur `pull_request`, fait echouer ce bloc — et lui seul.
@@ -50,6 +54,22 @@ const QG_FILE = "quality-gate.yml";
 const QG = existsSync(resolve(DIR, QG_FILE)) ? lire(QG_FILE) : "";
 const QG_CODE = sansCommentaires(QG);
 
+/**
+ * Bloc YAML d'un job (meme lecture que `scripts/release-workflow.test.js`) : de
+ * «   <nom>: » jusqu'au prochain en-tete de job. Rend "" si le job n'existe pas.
+ */
+function blocJob(nom) {
+  const lignes = QG.split("\n");
+  const debut = lignes.findIndex((l) => l === `  ${nom}:`);
+  if (debut === -1) return "";
+  const sortie = [];
+  for (let i = debut + 1; i < lignes.length; i++) {
+    if (/^ {2}[a-z][a-z0-9-]*:\s*$/.test(lignes[i])) break;
+    sortie.push(lignes[i]);
+  }
+  return sortie.join("\n");
+}
+
 describe("quality-gate.yml — le controle existe et se declenche au bon endroit", () => {
   it("le workflow existe", () => {
     expect(QG, `${QG_FILE} doit exister`).not.toBe("");
@@ -75,14 +95,19 @@ describe("quality-gate.yml — le controle existe et se declenche au bon endroit
 });
 
 describe("quality-gate.yml — un test rouge fait echouer la proposition", () => {
-  it("aucun continue-on-error, ni au job ni a une etape", () => {
-    // C'est LE point du verrou : un « continue-on-error » transformerait le
-    // controle en decoration verte.
-    expect(QG_CODE).not.toContain("continue-on-error");
+  it("le job de tests n'est jamais rendu optionnel", () => {
+    // C'est LE point du verrou : un « continue-on-error » sur le job de tests
+    // transformerait le controle en decoration verte. Le seul job autorise a
+    // etre tolerant est celui de compilation macOS, decrit plus bas (il ne
+    // lance aucun test).
+    const tests = sansCommentaires(blocJob("tests"));
+    expect(tests).not.toBe("");
+    expect(tests).not.toContain("continue-on-error");
   });
 
-  it("aucune etape de test n'est conditionnee", () => {
-    const lignes = QG_CODE.split("\n");
+  it("aucune etape du job de tests n'est conditionnee", () => {
+    const tests = sansCommentaires(blocJob("tests"));
+    const lignes = tests.split("\n");
     for (let i = 0; i < lignes.length; i++) {
       const l = lignes[i];
       if (!/^\s*run:/.test(l)) continue;
@@ -98,7 +123,7 @@ describe("quality-gate.yml — un test rouge fait echouer la proposition", () =>
   });
 
   it("le job de tests n'est pas rendu optionnel par un plafond de duree nul", () => {
-    const m = QG_CODE.match(/timeout-minutes:\s*(\d+)/);
+    const m = blocJob("tests").match(/timeout-minutes:\s*(\d+)/);
     expect(m).not.toBeNull();
     expect(Number(m[1])).toBeGreaterThan(0);
   });
@@ -126,5 +151,73 @@ describe("quality-gate.yml — il ne peut RIEN publier", () => {
     // publication : elle reste decrite a un seul endroit.
     expect(release).toContain("scripts/create-release.js");
     expect(release).toMatch(/latest-json:[\s\S]{0,400}?needs:\s*build/);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Le controle de la branche APPLE du moteur d'ecoute (decision du 2026-11-16,
+// `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`).
+//
+// Contexte : la feature `whisper` est desormais CONFINEE A WINDOWS dans la
+// fabrication de publication (`release.yml`), parce que les deux fabrications
+// macOS de la 0.6.25 ont echoue dessus — la branche Apple de `whisper.cpp`
+// (Accelerate, BLAS Apple, noyaux ILP64) n'avait jamais ete compilee, aucun job
+// ne la compilait, et le journal de l'echec etait inaccessible.
+//
+// Consequence a empecher : que le confinement devienne un angle mort (plus
+// jamais compile avant le jour de la publication). Ce job la compile donc a
+// chaque proposition et a chaque poussee sur `main`, sans installateur ni
+// signature, et depose son journal.
+// ───────────────────────────────────────────────────────────────────────────
+describe("quality-gate.yml — la branche Apple du moteur d'ecoute est compilee", () => {
+  const CHECK = blocJob("check-macos-whisper");
+
+  it("le job existe, sur une machine Apple", () => {
+    expect(CHECK, "job `check-macos-whisper` absent").not.toBe("");
+    expect(CHECK).toContain("runs-on: macos-latest");
+  });
+
+  it("il compile la MEME feature que la publication", () => {
+    expect(CHECK).toContain("--features whisper");
+    // Meme caisse que la publication (manifeste du bureau), profil release.
+    expect(CHECK).toMatch(/cargo build[^\n]*src-tauri\/Cargo\.toml/);
+    expect(CHECK).toContain("--release");
+    // Le bundle MCP est un prerequis de compilation (include_str!), pas un test.
+    expect(CHECK).toContain("npm run build:mcp");
+  });
+
+  it("il ne fabrique rien, ne signe rien, ne lance aucun test", () => {
+    // Un installateur ou une signature n'ont rien a faire dans un controle.
+    expect(CHECK).not.toContain("tauri-action");
+    expect(CHECK).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    // Les suites restent dans le job `tests` : leur verdict est le seul qui
+    // compte, et un echec ici ne doit jamais masquer un test rouge.
+    expect(CHECK).not.toMatch(/npm test/);
+    expect(CHECK).not.toMatch(/cargo test/);
+  });
+
+  it("il est TOLERANT a l'echec, et c'est le SEUL job qui l'est", () => {
+    expect(CHECK).toContain("continue-on-error: true");
+    // Aucun autre job du fichier ne porte ce drapeau.
+    const autres = QG_CODE.split("\n")
+      .filter((l) => /continue-on-error/.test(l))
+      .length;
+    expect(autres).toBe(1);
+    // Un plafond de duree existe (pas de job suspendu indefiniment).
+    const m = CHECK.match(/timeout-minutes:\s*(\d+)/);
+    expect(m).not.toBeNull();
+    expect(Number(m[1])).toBeGreaterThanOrEqual(30);
+  });
+
+  it("le journal est TOUJOURS depose en artefact", () => {
+    // C'est la raison d'etre du job : le prochain echec donne le texte exact du
+    // compilateur au lieu d'une supposition.
+    expect(CHECK).toContain("actions/upload-artifact@");
+    expect(CHECK).toContain("whisper-macos-build.log");
+    // La ligne `if: always()` precede le depot : sans elle, un echec n'aurait
+    // aucun journal.
+    expect(CHECK).toMatch(/if:\s*always\(\)[\s\S]{0,200}upload-artifact/);
+    // Le journal est ecrit par le tee de la compilation elle-meme.
+    expect(CHECK).toMatch(/tee\s+whisper-macos-build\.log/);
   });
 });

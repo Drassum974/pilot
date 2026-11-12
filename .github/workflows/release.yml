@@ -209,11 +209,30 @@ jobs:
         # Total visé : ~5-6 Go de `target/` + ~1,5 Go de registre Cargo/outils
         # + ~1 Go de paquets npm ≈ 8 Go : sous la limite, donc plus d'éviction
         # mutuelle (c'est l'éviction qui provoquait des compilations à froid).
+        # `rust_features` : drapeaux Cargo passés à tauri-action, PAR CIBLE.
+        # L'oreille intégrée (`--features whisper`) est CONFINÉE À WINDOWS
+        # (décision du 2026-11-16, rapport
+        # `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`) : le
+        # moteur compile et fonctionne sur Windows, alors que la branche Apple
+        # de `whisper.cpp` (Accelerate, BLAS Apple, noyaux ILP64) n'a jamais
+        # été compilée par la publication et a fait échouer les DEUX
+        # fabrications macOS de la 0.6.25 en fin de compilation. Tant que ce
+        # journal d'échec n'est pas lu, rien de la chaîne C++ n'est touché : la
+        # feature est simplement retirée des cibles Apple, qui redeviennent
+        # exactement ce qu'elles étaient en 0.6.24 (vertes).
+        # La branche Apple reste CONTRÔLÉE en amont, sans installateur ni
+        # signature, par le job `check-macos-whisper` de
+        # `.github/workflows/quality-gate.yml`.
+        #
+        # La clé `rust_features` n'existe QUE sur la ligne Windows : la ligne
+        # `args:` la lit avec le repli `|| ''` (aucune valeur vide dans la
+        # matrice, donc aucun piège d'expression).
         include:
           - platform: windows-latest
             rust_target: x86_64-pc-windows-msvc
             laya_platform: win32/x64
             rust_cache_targets: "true"
+            rust_features: "--features whisper"
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             laya_platform: darwin/arm64
@@ -353,22 +372,41 @@ jobs:
           # changelog). Le job `latest-json` ci-dessous génère un latest.json
           # avec le changelog (depuis les commits) et l'upload lui-même.
           includeUpdaterJson: false
-          # `--features whisper` : l'OREILLE INTÉGRÉE (transcription Whisper dans
-          # Pilot, `asr_whisper.rs`) est EMBARQUÉE dans l'application livrée sur
-          # les trois cibles publiées (Windows, macOS arm64, macOS x64). Sans ce
-          # drapeau, la fonctionnalité existait dans le code mais PAS dans le
-          # binaire installé : l'écran ne pouvait que répondre « moteur non
-          # compilé » et le propriétaire n'avait rien à tester.
+          # `${{ matrix.rust_features }}` : l'OREILLE INTÉGRÉE (transcription
+          # Whisper dans Pilot, `asr_whisper.rs`) est EMBARQUÉE dans
+          # l'application livrée **sur Windows uniquement** (décision du
+          # 2026-11-16). Sans ce drapeau, la fonctionnalité existe dans le code
+          # mais PAS dans le binaire installé : l'écran ne peut que répondre
+          # « moteur non compilé ».
+          #
+          # POURQUOI PAS SUR macOS : la 0.6.25 (`3db8721`) l'a posé sur les trois
+          # cibles et les DEUX fabrications macOS ont échoué en fin de
+          # compilation — c'est la seule différence de fabrication avec la
+          # 0.6.24, qui était verte. La branche Apple de `whisper.cpp` n'avait
+          # alors JAMAIS été compilée par la publication (Accelerate, BLAS
+          # Apple, noyaux ILP64) ; aucun job de contrôle ne la compilait non
+          # plus. Le journal de cet échec n'étant pas lisible sans
+          # authentification, la chaîne C++ n'est PAS retouchée au jugé : on
+          # retire seulement le drapeau des deux cibles Apple, qui redeviennent
+          # ce qu'elles étaient en 0.6.24. La branche Apple est désormais
+          # compilée AVANT publication par `check-macos-whisper`
+          # (`.github/workflows/quality-gate.yml`), sans installateur ni
+          # signature, et son journal est déposé en artefact : le prochain échec
+          # donnera le texte exact au lieu d'une supposition.
           #
           # Ce que ce drapeau ne change PAS : le défaut reste l'oreille du
           # service de voix local (`local_dictation_engine = "voicestudio"`) ;
           # l'oreille intégrée n'est proposée que si l'utilisateur la choisit,
           # ET elle exige en plus le modèle (874 Mo, téléchargé sur un geste).
           # `whisper.cpp` est compilé par `cmake` + le compilateur C++ du runner
-          # (présents par défaut sur `windows-latest` et `macos-latest`) ;
-          # `libclang` n'est PAS requis (copie locale `vendor/whisper-rs-sys`).
-          # Coût mesuré : ~1 min de C++ par cible.
-          args: --target ${{ matrix.rust_target }} --features whisper
+          # (présent par défaut sur `windows-latest`) ; `libclang` n'est PAS
+          # requis (copie locale `vendor/whisper-rs-sys`).
+          # Coût mesuré sur Windows : ~1 min de C++.
+          #
+          # La clé `rust_features` de la matrice n'existe QUE sur la ligne
+          # Windows ; le repli `|| ''` rend la ligne `args:` identique pour les
+          # deux cibles Apple, qui ne portent donc plus aucun drapeau.
+          args: --target ${{ matrix.rust_target }} ${{ matrix.rust_features || '' }}
 
   # ─────────────────────────────────────────────────────────────────────
   # build-linux — fabrication de la cible Linux, SÉPARÉE de Windows/macOS.

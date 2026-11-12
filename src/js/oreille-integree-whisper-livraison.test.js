@@ -1,4 +1,4 @@
-// Verrou — L'OREILLE INTÉGRÉE EST DANS L'APPLICATION LIVRÉE.
+// Verrou — L'OREILLE INTÉGRÉE EST DANS L'APPLICATION LIVRÉE (WINDOWS).
 //
 // Le moteur Whisper (`asr_whisper.rs`) n'existe dans le binaire que si Cargo est
 // appelé avec `--features whisper`. Tant que ce drapeau n'était posé QUE sur la
@@ -7,9 +7,15 @@
 // répondre « le moteur intégré n'est pas compilé dans cette version de Pilot »,
 // et il n'y avait rien à tester après installation.
 //
-// Ce fichier protège la décision de LIVRAISON (2026-11-16) :
-//   1. le job `build` (Windows + macOS arm64 + macOS x64) pose le drapeau ;
-//   2. les trois cibles publiées sont toujours celles de la matrice ;
+// Ce fichier protège la décision de LIVRAISON (2026-11-16), DANS SA VERSION
+// CONFINÉE (décision du même jour, rapport
+// `docs/rapports/RAPPORT-oreille-integree-macos-confinement.md`) :
+//   1. le job `build` pose le drapeau **sur Windows seulement** — la 0.6.25
+//      l'avait posé sur les trois cibles et les deux fabrications macOS ont
+//      échoué en fin de compilation (branche Apple de `whisper.cpp` :
+//      Accelerate, BLAS Apple, noyaux ILP64, jamais compilée auparavant) ;
+//   2. les trois cibles publiées sont toujours celles de la matrice, et macOS
+//      redevient exactement ce qu'il était en 0.6.24 (sans le drapeau) ;
 //   3. la feature reste OPTIONNELLE (`default = []`) : un build sans drapeau
 //      reste vert, et c'est celui de `cargo test` ;
 //   4. le comportement par défaut ne bouge pas : l'oreille du service de voix
@@ -59,22 +65,52 @@ function lignesDeCommande(bloc) {
 const WORKFLOW = lire(".github/workflows/release.yml");
 const BUILD = blocJob(WORKFLOW, "build");
 
+/**
+ * Entrées de la matrice `include:` d'un bloc de job, dans l'ordre. Chaque entrée
+ * est rendue sous une forme où `platform:` est en tête (l'ancre de découpe).
+ */
+function ciblesDuJob(bloc) {
+  return bloc
+    .split(/^\s{10}- platform:/m)
+    .slice(1)
+    .map((morceau) => {
+      // Une entrée de matrice = uniquement ses clés (indentées de 12 espaces) :
+      // ce qui suit (commentaires du job, `runs-on`, `args:`…) n'en fait pas
+      // partie et ne doit pas contaminer la lecture.
+      const lignes = morceau.split("\n");
+      const tete = `platform:${lignes[0]}`;
+      const cles = [];
+      for (const ligne of lignes.slice(1)) {
+        if (!/^\s{12}\S/.test(ligne)) break;
+        cles.push(ligne.trim());
+      }
+      return `${tete}\n${cles.join("\n")}`;
+    });
+}
+
+/** L'unique ligne `args:` du job `build` (celle passée à tauri-action). */
+function ligneArgs(bloc) {
+  const lignes = lignesDeCommande(bloc)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("args:"));
+  expect(lignes).toHaveLength(1);
+  return lignes[0];
+}
+
 describe("1. Le drapeau `whisper` est posé là où l'application est réellement construite", () => {
   it("le job `build` existe et lance tauri-action", () => {
     expect(BUILD).not.toBe("");
     expect(BUILD).toContain("tauri-apps/tauri-action@v0");
   });
 
-  it("la ligne `args:` de ce job porte `--features whisper`", () => {
-    const commandes = lignesDeCommande(BUILD);
-    const ligne = commandes
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.startsWith("args:"));
-    expect(ligne, "aucune ligne `args:` dans le job build").toBeTruthy();
-    expect(ligne).toContain("--features whisper");
+  it("la ligne `args:` de ce job lit le drapeau dans la matrice", () => {
+    const ligne = ligneArgs(BUILD);
+    expect(ligne).toContain("matrix.rust_features");
     // La cible de la matrice ne doit pas être perdue au passage.
     expect(ligne).toContain("matrix.rust_target");
+    // Le drapeau n'est plus recopié ici : il vit dans la matrice, par cible.
+    expect(ligne).not.toContain("--features whisper");
   });
 
   it("aucune autre commande de fabrication du job ne construit sans le drapeau", () => {
@@ -83,26 +119,43 @@ describe("1. Le drapeau `whisper` est posé là où l'application est réellemen
     // exister à côté, sinon elle produirait un binaire SANS le moteur.
     expect(commandes).not.toMatch(/\bcargo build\b/);
     expect(commandes).not.toContain("npm run tauri build");
-    // Le nombre de lignes `args:` reste 1 : un seul point de vérité.
-    expect(commandes.split("\n").filter((l) => /^\s*args:/.test(l))).toHaveLength(1);
   });
 });
 
-describe("2. Les trois plateformes publiées sont couvertes", () => {
+describe("2. Les trois plateformes publiées sont couvertes, et le drapeau est CONFINÉ à Windows", () => {
   it("la matrice `build` contient Windows et les deux macOS", () => {
     expect(BUILD).toContain("x86_64-pc-windows-msvc");
     expect(BUILD).toContain("aarch64-apple-darwin");
     expect(BUILD).toContain("x86_64-apple-darwin");
+    expect(ciblesDuJob(BUILD)).toHaveLength(3);
   });
 
-  it("le drapeau n'est pas conditionné à une cible particulière", () => {
-    const ligne = lignesDeCommande(BUILD)
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.startsWith("args:"));
-    // Aucune expression conditionnelle : le drapeau vaut pour les trois.
-    expect(ligne).not.toMatch(/if /);
-    expect(ligne).not.toMatch(/matrix\.rust_target ==/);
+  it("la cible Windows porte le drapeau", () => {
+    const windows = ciblesDuJob(BUILD).filter((c) =>
+      c.includes("x86_64-pc-windows-msvc")
+    );
+    expect(windows).toHaveLength(1);
+    expect(windows[0]).toContain('rust_features: "--features whisper"');
+  });
+
+  it("AUCUNE cible Apple ne le porte (confinement du 2026-11-16)", () => {
+    const apple = ciblesDuJob(BUILD).filter((c) => c.includes("apple-darwin"));
+    expect(apple).toHaveLength(2);
+    for (const cible of apple) {
+      // Ni le drapeau, ni une clé `rust_features` : macOS doit redevenir
+      // exactement ce qu'il était en 0.6.24, où la fabrication était verte.
+      expect(cible).not.toContain("--features whisper");
+      expect(cible).not.toContain("rust_features");
+    }
+  });
+
+  it("la branche Apple est compilée AILLEURS, avant toute publication", () => {
+    // Confinement sans angle mort : le contrôle existe et compile la même
+    // feature. Détail des assertions dans
+    // `scripts/quality-gate-workflow.test.js` (le fichier qui le porte).
+    const qg = lire(".github/workflows/quality-gate.yml");
+    expect(qg).toContain("check-macos-whisper");
+    expect(qg).toContain("--features whisper");
   });
 });
 
