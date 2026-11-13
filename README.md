@@ -225,6 +225,17 @@ Pilot se comporte aussi comme un **gestionnaire de projets** : il ouvre plusieur
   lit une **phrase d'exemple courte** (le même bouton devient **« Arrêter »**, une seule voix à la
   fois). Une voix dont le modèle n'est pas encore téléchargé n'est **pas** remplacée par la voix du
   système : la section le dit et propose le téléchargement.
+- **Une quatrième voix, facultative : PocketTTS.** Dans la **même** liste apparaît
+  **« PocketTTS — voix de femme (estelle) »** — **en plus** des voix françaises locales et de
+  votre voix imitée, jamais à leur place, et jamais choisie par défaut. C'est un **logiciel
+  séparé** que Pilot n'installe pas : quand il est présent, un bouton **« Installer la voix
+  PocketTTS »** n'apparaît que s'il manque quelque chose et ne télécharge **que si vous cliquez**
+  (rien au démarrage, rien à l'ouverture des Options, rien pendant une lecture). Ensuite tout se
+  passe **sur votre ordinateur, hors ligne**, sans carte graphique. **Vos propres voix** déposées
+  apparaissent comme les autres (« voix imitée »). Moteur absent ou en échec : la lecture
+  **continue** avec la voix française locale (Piper) puis la voix du système, et une ligne courte
+  l'annonce à côté du bouton « 🔊 Écouter ». Poids sous licence **CC BY 4.0** : « Pocket TTS ©
+  Kyutai Labs — CC BY 4.0 » est écrit dans la section du réglage.
 - **Un personnage peut avoir sa propre voix** : quand un personnage est actif, une ligne
   **« Voix de <nom> : »** apparaît **sous** le choix de la voix de lecture — c'est la voix de ce
   personnage, et elle seule. Sans choix, il lit avec la voix de lecture ci-dessus, et une voix

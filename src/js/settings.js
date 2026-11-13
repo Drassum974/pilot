@@ -133,6 +133,21 @@ import {
   normalizeCharacterVoices,
   withCharacterVoice,
 } from "./character-voices.js";
+// Voix PocketTTS (Kyutai) : TROISIÈME moteur, à côté de Piper et de la voix
+// imitée et jamais à leur place. La section lit SON état (jamais un état
+// inventé) et un clic peut télécharger ses poids — `installPocketWeights` est le
+// SEUL appelant possible d'un téléchargement, et il n'est branché QUE sur le
+// bouton ci-dessous.
+import {
+  getPocketStatus,
+  installPocketWeights,
+  pocketStatusNote,
+  pocketVoiceIdFor,
+  refreshPocketStatus,
+  POCKET_ATTRIBUTION,
+  POCKET_ENGINE,
+  POCKET_INSTALL_LABEL,
+} from "./pocket-voice.js";
 // Nom du PERSONNAGE ACTIF : lu en mémoire, jamais deviné. Aucun personnage (le
 // service Présences n'est pas installé ou pas activé) ⇒ la ligne n'apparaît pas.
 import { getAssistantPersonaName } from "./assistant-persona.js";
@@ -1197,6 +1212,10 @@ const chkGraphIncludeCalls = document.getElementById("setting-graph-include-call
     // cette section dans le fichier. L'échec devient un état lisible, jamais une
     // exception.
     await refreshVoiceStudioStatus({ voice: voiceStudioProfileIdFor(wanted) });
+    // Voix PocketTTS : interrogée dans la MÊME vérification (même geste, même
+    // instant, même chemin). Aucun téléchargement n'est déclenché ici — la
+    // commande de statut ne fait que LIRE des fichiers.
+    await refreshPocketStatus({ voice: pocketVoiceIdFor(wanted) || "" });
     const etatLocal = status || localVoiceStatusFor(model || DEFAULT_LOCAL_VOICE_MODEL);
     if (selectReadAloudVoice) {
       // Le choix en cours est CONSERVÉ : on re-rend la valeur AFFICHÉE (la
@@ -1256,9 +1275,19 @@ const chkGraphIncludeCalls = document.getElementById("setting-graph-include-call
     // État du service de voix imitée : lu, jamais deviné. Sans lui, la liste ne
     // contiendrait aucune voix imitée (et un choix mémorisé serait invisible).
     const voicestudio = getVoiceStudioStatus();
+    // État de la voix PocketTTS : lu, jamais deviné. Sans lui, la liste ne
+    // contiendrait qu'une ligne « état non vérifié » — et un choix mémorisé
+    // resterait visible quand même (aucune voix ne disparaît).
+    const pocket = getPocketStatus();
     // Liste des voix proposees : calculee UNE fois, et reprise telle quelle par
     // les rangees d'ecoute (aucune seconde liste dans le fichier).
-    const options = voiceChoiceOptions(voices, local || undefined, voicestudio || undefined, wanted);
+    const options = voiceChoiceOptions(
+      voices,
+      local || undefined,
+      voicestudio || undefined,
+      wanted,
+      pocket || undefined,
+    );
     selectReadAloudVoice.innerHTML = "";
     for (const opt of options) {
       const el = document.createElement("option");
@@ -1268,7 +1297,7 @@ const chkGraphIncludeCalls = document.getElementById("setting-graph-include-call
     }
     renderVoicePreviews(options);
     renderCharacterVoice(options);
-    const status = voiceChoiceStatus(voices, wanted, local, voicestudio || undefined);
+    const status = voiceChoiceStatus(voices, wanted, local, voicestudio || undefined, pocket || undefined);
     selectReadAloudVoice.value = status.value;
     selectReadAloudVoice.disabled = status.kind === "empty";
     if (readAloudVoiceNote) {
@@ -1288,6 +1317,34 @@ const chkGraphIncludeCalls = document.getElementById("setting-graph-include-call
     }
     showReadAloudState(lastReadAloudState);
     showDownloadState(downloadState);
+    // Voix PocketTTS : la ligne dit OÙ on en est (moteur absent / poids à
+    // télécharger / prête) et rappelle le repli. Le bouton d'installation
+    // n'apparaît QUE s'il manque quelque chose, et il est le seul à pouvoir
+    // télécharger. Aucun téléchargement ici : c'est un simple rendu.
+    if (readAloudPocketNote) {
+      readAloudPocketNote.textContent = pocketStatusNote(pocket);
+      readAloudPocketNote.dataset.state = !pocket || pocket.unknown
+        ? "unknown"
+        : pocket.installed
+          ? "ok"
+          : "missing";
+    }
+    if (readAloudPocketAttribution) {
+      // Attribution des poids (CC BY 4.0) : écrite une seule fois, dans le module.
+      readAloudPocketAttribution.textContent = POCKET_ATTRIBUTION;
+    }
+    if (btnReadAloudPocketInstall) {
+      const manque = !!pocket && pocket.unknown !== true && pocket.installed !== true;
+      // Le téléchargement des poids n'est possible que si le MOTEUR est là :
+      // Pilot ne l'installe pas lui-même. Le libellé reste le même, l'infobulle
+      // et la ligne d'état expliquent quoi faire quand le moteur manque.
+      btnReadAloudPocketInstall.style.display = manque ? "" : "none";
+      btnReadAloudPocketInstall.disabled = !pocket || pocket.engine_present !== true;
+      btnReadAloudPocketInstall.textContent = POCKET_INSTALL_LABEL;
+      btnReadAloudPocketInstall.title = !pocket || pocket.engine_present !== true
+        ? `${POCKET_ENGINE} est un logiciel séparé : Pilot ne l'installe pas. Déposez son programme dans le dossier indiqué ci-dessus.`
+        : "Télécharger une seule fois les poids français de PocketTTS, sur votre demande explicite. Rien n'est téléchargé sans ce clic.";
+    }
     // Liste vide au premier instant (voix encore en chargement) : on re-tente
     // une fois après l'attente habituelle, sans jamais bloquer la modale.
     if (!voices.length) {
@@ -1593,6 +1650,14 @@ const chkGraphIncludeCalls = document.getElementById("setting-graph-include-call
   const btnReadAloudDownload = document.getElementById("btn-read-aloud-download");
   const btnReadAloudDownloadCancel = document.getElementById("btn-read-aloud-download-cancel");
   const btnReadAloudRecheck = document.getElementById("btn-read-aloud-recheck");
+  // Voix PocketTTS (troisième moteur) : état, attribution et bouton d'install.
+  const readAloudPocketNote = document.getElementById("read-aloud-pocket-note");
+  const readAloudPocketAttribution = document.getElementById(
+    "read-aloud-pocket-attribution",
+  );
+  const btnReadAloudPocketInstall = document.getElementById(
+    "btn-read-aloud-pocket-install",
+  );
   // ── Mode Vocal : delai d'envoi sur silence (1 a 5 s, 2 s par defaut) ──
   // Meme endroit que le reglage de la voix (onglet Assistant), un seul champ,
   // memorise dans la configuration (`vocal_silence_send_ms`).
@@ -2826,6 +2891,29 @@ const chkSuperAgentLongTasks = document.getElementById("setting-superagent-long-
   // les deux voix françaises, jamais un téléchargement automatique).
   if (btnReadAloudDownload) {
     btnReadAloudDownload.addEventListener("click", () => startReadAloudDownload(true));
+  }
+  // Bouton « Installer la voix PocketTTS » : GESTE EXPLICITE, et le SEUL
+  // appelant de `installPocketWeights` dans tout le front (verrou de test).
+  // Aucun téléchargement au démarrage, à l'ouverture des Paramètres, ni pendant
+  // la lecture.
+  if (btnReadAloudPocketInstall) {
+    btnReadAloudPocketInstall.addEventListener("click", async () => {
+      if (btnReadAloudPocketInstall.disabled) return;
+      btnReadAloudPocketInstall.disabled = true;
+      if (readAloudPocketNote) {
+        readAloudPocketNote.textContent = `Téléchargement des poids ${POCKET_ENGINE} en cours…`;
+      }
+      const result = await installPocketWeights();
+      // Le résultat est dit à l'écran, en clair : jamais un échec silencieux.
+      if (readAloudPocketNote) {
+        readAloudPocketNote.textContent = result.ok
+          ? result.message
+          : `Installation impossible (${result.message}). La lecture continue avec la voix choisie, et se rabat sur la voix locale (Piper) si besoin.`;
+        readAloudPocketNote.dataset.state = result.ok ? "ok" : "missing";
+      }
+      // L'état est RELU après le geste : la liste et la ligne disent la vérité.
+      refreshReadAloudVoice(selectReadAloudVoice ? selectReadAloudVoice.value : "");
+    });
   }
   // Bouton d'arrêt du téléchargement en cours (rien n'est supprimé).
   if (btnReadAloudDownloadCancel) {

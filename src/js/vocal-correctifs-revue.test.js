@@ -66,16 +66,19 @@ const HELP = lire("help/overview.md");
 
 // ---------------------------------------------------------------------------
 describe("1. « Pilot parle » : une seule decision, replis de voix compris", () => {
-  it("vraie pendant la lecture normale ET pendant ses trois replis", () => {
+  it("vraie pendant la lecture normale ET pendant ses quatre replis", () => {
     expect(isReadAloudSpeaking("speaking")).toBe(true);
     expect(isReadAloudSpeaking("local-fallback")).toBe(true);
     expect(isReadAloudSpeaking("system-fallback")).toBe(true);
     // Voix IMITÉE indisponible : Pilot PARLE quand même (voix locale), donc le
     // micro doit rester protégé — même règle, aucun cas particulier.
     expect(isReadAloudSpeaking("voicestudio-fallback")).toBe(true);
+    // Voix PocketTTS indisponible : même règle, aucun cas particulier — Pilot
+    // PARLE (voix locale), donc le micro reste protégé.
+    expect(isReadAloudSpeaking("pocket-fallback")).toBe(true);
   });
 
-  it("vraie pour CES QUATRE etats, et pour eux seuls", () => {
+  it("vraie pour CES CINQ etats, et pour eux seuls", () => {
     // La liste est la definition : si un etat de lecture est ajoute demain, il
     // doit etre ajoute ici EN CONNAISSANCE DE CAUSE (parler = micro a proteger).
     expect(READ_ALOUD_SPEAKING_STATES).toEqual([
@@ -83,6 +86,7 @@ describe("1. « Pilot parle » : une seule decision, replis de voix compris", ()
       "local-fallback",
       "system-fallback",
       "voicestudio-fallback",
+      "pocket-fallback",
     ]);
     for (const etat of ["", "unavailable", "empty", "stopped", "ended", "no-voice", "idle"]) {
       expect(isReadAloudSpeaking(etat), etat).toBe(false);

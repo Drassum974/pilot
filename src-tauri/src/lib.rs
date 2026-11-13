@@ -91,6 +91,12 @@ mod tts_local_download;
 // deuxième moteur de lecture, à côté de Piper, jamais à sa place. Aucun moteur
 // téléchargé, aucun fichier audio écrit, appels sur la boucle locale seulement.
 mod tts_voicestudio;
+// Voix PocketTTS (Kyutai) : TROISIÈME moteur de lecture, à côté des deux autres,
+// jamais à leur place. Programme séparé (non installé par Pilot, aucun paquet
+// téléchargé depuis ce module), poids du modèle français téléchargés SUR UN
+// GESTE seulement, inférence CPU, aucun appel réseau à la lecture, aucun fichier
+// audio conservé, repli journalisé et annoncé côté fenêtre.
+mod tts_pocket;
 // Oreille LOCALE de la dictée (étape 1 de `spec_voice_input.md`) : la parole est
 // transcrite par le MÊME service local VoiceStudio, en flux. Frère de
 // `tts_voicestudio.rs`, jamais à sa place. Aucun modèle téléchargé, aucun fichier
@@ -3860,6 +3866,10 @@ pub fn run() {
             tts_voicestudio::tts_voicestudio_synthesize,
             tts_voicestudio::tts_voicestudio_warmup,
             tts_voicestudio::tts_voicestudio_log,
+            tts_pocket::tts_pocket_status,
+            tts_pocket::tts_pocket_synthesize,
+            tts_pocket::tts_pocket_install,
+            tts_pocket::tts_pocket_log,
             asr_voicestudio::asr_voicestudio_status,
             asr_voicestudio::asr_voicestudio_start,
             asr_voicestudio::asr_voicestudio_send,

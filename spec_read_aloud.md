@@ -643,6 +643,72 @@ defaut et le repli**).
     une seule relance, et seulement si passagère ; pas de double préchauffage).
     Rapport : `docs/rapports/RAPPORT-predemarrage-voix-voicestudio.md`.
 
+## 4 quinquies. Quatrième voix : PocketTTS (facultative, ajoutée)
+
+Décision du propriétaire : PocketTTS est une **quatrième entrée** de la liste
+unique des voix. **Rien n'est remplacé** : Piper (voix française locale, la voix
+par défaut et le repli), la voix imitée (VoiceStudio) et les voix du système
+restent proposées avec **la même valeur et le même libellé**. Rapport :
+`docs/rapports/RAPPORT-voix-pockettts.md`.
+
+1. **Un seul réglage, une seule liste, un seul endroit.** La valeur est
+   `local:pocket` (voix du moteur, `estelle`) ou `local:pocket:<id>` (voix
+   déposée par l'utilisateur), dans le **même** champ `read_aloud_voice` et la
+   **même** section (Options → Assistant → « Lecture des réponses »). Aucun
+   second réglage, aucun second écran, aucune seconde grammaire :
+   `isUsableVoiceValue` (`character-voices.js`) accepte ces valeurs comme
+   n'importe quelle autre voix (y compris comme voix **d'un personnage**).
+2. **Jamais par défaut, jamais activée à la place de l'utilisateur.** Le module
+   ne lit ni n'écrit aucune configuration (aucun `AppConfig`, aucun
+   `save_config`) ; le premier choix de la liste reste « Automatique » (`""`).
+3. **Aucun téléchargement sans geste.** La seule fonction capable de faire
+descendre les poids est `installPocketWeights` (`pocket-voice.js`), appelée par
+   **un seul** gestionnaire `click` (bouton `#btn-read-aloud-pocket-install`,
+   visible **seulement** s'il manque quelque chose). Rien au démarrage, rien à
+   l'ouverture des Options, rien pendant une lecture : la commande de statut
+   (`tts_pocket_status`) **ne fait que lire des fichiers**.
+4. **Pilot n'installe pas PocketTTS lui-même** : il cherche le programme dans
+   `<app_data_dir>/voix-pocket/moteur/` (`pocket-tts.exe` ou un venv
+   `Scripts/bin`) et, quand il manque, **dit où le déposer** (aucune commande,
+   aucune adresse, aucun paquet inventé).
+5. **Tout se passe sur cet ordinateur, hors ligne** : `--device cpu` uniquement,
+   cache du moteur **dans notre dossier** (`HF_HOME=<racine>/hf`), télémétrie HF
+   coupée, **aucun fichier audio écrit** (WAV en base64 en mémoire, temporaire
+   toujours supprimé), **aucun appel réseau à la lecture**.
+6. **Un seul découpage, une seule boucle d'avance** : `lireGroupesFabriques`
+   (`read-aloud.js`) sert la voix imitée **et** PocketTTS
+   (`groupSentencesForVoiceStudio` : premier morceau = une phrase, groupes de 4
+   phrases / 700 caractères, jamais une phrase coupée). `pocket-voice.js` ne
+   porte **aucune** fonction de découpage (aucun second mécanisme).
+7. **Repli en chaîne, toujours annoncé** : PocketTTS → **Piper** → voix du
+   système. L'échec **journalise** (`voix-locale.log`, préfixe `[PocketTTS]`),
+   publie l'état `pocket-fallback` et affiche `readAloudPocketFallbackNotice(cause)`
+   **à côté du bouton « 🔊 Écouter »**, dans le **même** `span.agent-read-notice`
+   que les autres replis ; le mode Vocal le sait (`READ_ALOUD_SPEAKING_STATES`,
+   cinq états) donc le micro reste protégé. Jamais de silence, jamais un gel.
+8. **Un choix mémorisé ne disparaît jamais de la liste** : état illisible ⇒
+   `pocketVoiceChoices` rend **une** ligne « état non vérifié » ; voix retirée du
+   disque ⇒ une ligne qui la nomme et dit pourquoi. La comparaison se fait par
+   **valeur** (la voix par défaut porte la valeur courte `local:pocket`).
+9. **Le genre est écrit en clair** (« voix de femme (estelle) », « voix
+   imitée (<id>) »).
+10. **Attribution** : poids sous **CC BY 4.0** → « Pocket TTS © Kyutai Labs —
+    CC BY 4.0 », une seule constante (`ATTRIBUTION` côté Rust,
+    `POCKET_ATTRIBUTION` côté fenêtre), affichée dans la section du réglage.
+11. **Rien sur le thread principal** : les trois commandes de synthèse et
+    d'installation sont `pub async fn` + `spawn_blocking`.
+
+Couverture : `src/js/voix-pockettts.test.js` (les dix points ci-dessus, dont
+« aucune voix existante ne disparaît », « jamais par défaut », « aucun
+téléchargement sans geste », repli réellement joué par Piper après échec) et les
+tests de `src-tauri/src/tts_pocket.rs` (valeur stable, genre en clair,
+attribution unique, état déduit des fichiers réellement présents, poids tronqué
+jamais accepté, voix imitées = voix ordinaires, synthèse qui ne télécharge rien,
+installation refusée sans moteur et sans rien créer, arguments fixés, cache dans
+notre dossier, WAV tronqué refusé, moteur cherché à un seul endroit connu).
+
+Aide utilisateur : `help/overview.md`, bloc `HELP:lire-reponses`.
+
 ## 5. Portée
 
 100 % local : synthèse du système (`speechSynthesis`), moteur local (Piper) **ou

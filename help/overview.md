@@ -862,6 +862,23 @@ un petit bouton **« 🔊 Écouter »** posé sous le message, à côté de la b
   et le texte lu est nettoyé et découpé de la même façon quel que soit le moteur.
   Une configuration enregistrée avant cette évolution continue de fonctionner
   telle quelle (elle désigne la voix locale par défaut).
+- **Une quatrième voix possible : PocketTTS** (facultative, jamais imposée).
+  Dans la même liste, une entrée **« PocketTTS — voix de femme (estelle) »**
+  apparaît **en plus** des voix françaises locales et de votre voix imitée :
+  rien n'est remplacé, rien n'est renommé, et le réglage de départ ne change pas
+  (c'est toujours « Automatique »). PocketTTS est un **logiciel séparé** : Pilot
+  ne l'installe pas lui-même. Quand il est présent, un bouton **« Installer la
+  voix PocketTTS »** n'apparaît que s'il manque quelque chose, et il ne
+  télécharge **que si vous cliquez** — jamais au démarrage, jamais à l'ouverture
+  des Options, jamais pendant une lecture. Ensuite tout se passe **sur cet
+  ordinateur, hors ligne** (le processeur suffit, aucune carte graphique). Vous
+  pouvez aussi déposer **vos propres voix** : elles apparaissent comme les
+  autres, « voix imitée », dans la **même** liste et le **même** réglage. Si le
+  moteur manque ou se trompe, la lecture **ne s'arrête pas** : elle continue avec
+  la **voix française locale (Piper)** puis la voix du système, et une ligne
+  courte l'annonce **à côté du bouton « 🔊 Écouter »**. Les poids de PocketTTS
+  sont publiés sous licence **CC BY 4.0** : « Pocket TTS © Kyutai Labs —
+  CC BY 4.0 » est écrit dans la section du réglage.
 - **Vos propres messages** et les **événements système** ne portent pas ce
   bouton.
 - **Ce que ça ne fait pas** : enregistrer le son dans un fichier, ni envoyer le

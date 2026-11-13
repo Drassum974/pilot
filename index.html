@@ -1488,9 +1488,19 @@
             <div class="setting-row setting-row-indent" style="font-size:11px;color:var(--text-muted);">
               <span id="read-aloud-download-state" role="status" aria-live="polite"></span>
             </div>
+            <!-- Voix PocketTTS (troisi&egrave;me moteur, &agrave; c&ocirc;t&eacute; des deux autres et
+                 jamais &agrave; leur place). L'&eacute;tat vient de `pocket-voice.js` (source
+                 unique) : la ligne est r&eacute;&eacute;crite &agrave; chaque rendu de la section.
+                 Le bouton ne t&eacute;l&eacute;charge RIEN sans ce clic, et il n'appara&icirc;t que
+                 quand il manque vraiment quelque chose. -->
+            <div class="setting-row setting-row-indent" style="font-size:11px;color:var(--text-muted);flex-direction:column;align-items:stretch;gap:4px;">
+              <span id="read-aloud-pocket-note" role="note">Voix PocketTTS&nbsp;: un moteur s&eacute;par&eacute;, d&eacute;j&agrave; install&eacute; ou non sur cet ordinateur. Choisissez-la dans la liste ci-dessus&nbsp;; si le moteur ou ses poids manquent, la lecture continue avec la voix locale (Piper) et une ligne l'annonce &agrave; c&ocirc;t&eacute; du bouton &laquo;&nbsp;&Eacute;couter&nbsp;&raquo;.</span>
+              <span id="read-aloud-pocket-attribution" role="note" style="font-size:11px;color:var(--text-muted);opacity:0.8;">Pocket TTS &copy; Kyutai Labs &mdash; CC BY 4.0</span>
+            </div>
             <div class="setting-row setting-row-indent" style="gap:6px;flex-wrap:wrap;">
               <button type="button" id="btn-read-aloud-download" class="web-btn" style="display:none;" title="Installer la voix locale : t&eacute;l&eacute;charge une seule fois, depuis Internet, le moteur de lecture et les deux voix fran&ccedil;aises (une femme, un homme). Rien n'est t&eacute;l&eacute;charg&eacute; sans ce geste.">Installer la voix locale</button>
               <button type="button" id="btn-read-aloud-download-cancel" class="web-btn" style="display:none;" title="Arr&ecirc;ter l'installation en cours. Rien n'est supprim&eacute; : ce qui a d&eacute;j&agrave; &eacute;t&eacute; re&ccedil;u reste en place et l'installation reprendra l&agrave; o&ugrave; elle s'est arr&ecirc;t&eacute;e.">&times; Arr&ecirc;ter l'installation</button>
+              <button type="button" id="btn-read-aloud-pocket-install" class="web-btn" style="display:none;" title="T&eacute;l&eacute;charger une seule fois les poids fran&ccedil;ais de PocketTTS, sur votre demande explicite. Rien n'est t&eacute;l&eacute;charg&eacute; sans ce clic, ni au d&eacute;marrage, ni &agrave; l'ouverture des Param&egrave;tres, ni pendant la lecture.">Installer la voix PocketTTS</button>
               <button type="button" id="btn-read-aloud-recheck" class="web-btn" title="Rev&eacute;rifier maintenant la pr&eacute;sence du moteur et du mod&egrave;le (l'&eacute;tat affich&eacute; peut &ecirc;tre p&eacute;rim&eacute;).">V&eacute;rifier &agrave; nouveau</button>
             </div>
           </div>

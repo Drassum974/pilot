@@ -120,6 +120,22 @@ import {
   getVoiceStudioStatus,
   VOICESTUDIO_UNKNOWN_HINT,
 } from "./voicestudio-voice.js";
+// Voix PocketTTS (Kyutai) : TROISIÈME moteur, à côté des deux autres et jamais à
+// leur place. Le module sait quelles voix Pocket existent, si le moteur et ses
+// poids sont là, découpe le texte, demande le son à la machine et journalise un
+// repli. Le réglage unique et l'état de lecture restent ICI.
+import {
+  groupSentencesForPocket,
+  isPocketVoiceChoice,
+  logPocket,
+  pocketVoiceChoices,
+  pocketVoiceIdFor,
+  pocketUnavailableLabel,
+  synthesizePocketAudio,
+  getPocketStatus,
+  POCKET_ENGINE,
+  POCKET_UNKNOWN_HINT,
+} from "./pocket-voice.js";
 // VOIX PROPRE AU PERSONNAGE ACTIF (Présences) : le personnage a sa voix, sinon la
 // voix générale. La RÈGLE de priorité vit dans `character-voices.js` (pure) et
 // elle est appliquée ici à UN SEUL endroit : `resolveReadingVoice`. Ce fichier ne
@@ -218,14 +234,16 @@ export const READ_ALOUD_SOUND_EVENT = "pilot-read-aloud-sound";
  * Etats de lecture pendant lesquels PILOT PARLE vraiment — la voix sort des
  * haut-parleurs, donc le micro peut l'entendre.
  *
- * Il y en a QUATRE, et pas un : la lecture normale (`speaking`) et ses TROIS
+ * Il y en a CINQ, et pas un : la lecture normale (`speaking`) et ses QUATRE
  * replis. `local-fallback` est emis quand la voix locale choisie n'est pas
  * disponible et que le systeme prend le relais ; `system-fallback` quand aucune
  * voix du systeme ne correspond a la langue demandee ; `voicestudio-fallback`
  * quand la voix IMITEE choisie n'a pas pu etre obtenue (service eteint, voix
- * disparue, synthese refusee) et que la voix locale a pris le relais. Dans les
- * trois cas Pilot parle : la duree, le texte et le son sont ceux d'une lecture
- * ordinaire.
+ * disparue, synthese refusee) et que la voix locale a pris le relais ;
+ * `pocket-fallback` quand la voix PocketTTS choisie n'a pas pu etre obtenue
+ * (moteur absent, poids absents, synthese refusee) et que la voix locale a pris
+ * le relais. Dans les quatre cas Pilot parle : la duree, le texte et le son sont
+ * ceux d'une lecture ordinaire.
  *
  * Ce que cette liste corrige : l'ecran Vocal ne regardait que `speaking`
  * exactement (`etat === "speaking"`). Pendant un repli, il croyait donc au
@@ -238,6 +256,7 @@ export const READ_ALOUD_SPEAKING_STATES = [
   "local-fallback",
   "system-fallback",
   "voicestudio-fallback",
+  "pocket-fallback",
 ];
 
 /**
@@ -487,6 +506,21 @@ function readingVoiceAvailable(value) {
       if (!profiles.length) return true;
       return voiceStudioKnowsProfile(value, profiles);
     }
+    // Voix PocketTTS : meme regle — un etat INCONNU ne condamne jamais la voix.
+    if (isPocketVoiceChoice(value)) {
+      const pocket = getPocketStatus();
+      if (!pocket || pocket.unknown || !pocket.installed) {
+        // Pas encore installée : elle reste proposée (elle peut l'être demain),
+        // et c'est la lecture qui se rabat en le disant.
+        return true;
+      }
+      const voices = Array.isArray(pocket.voices) ? pocket.voices : [];
+      if (!voices.length) return true;
+      // Comparaison par VALEUR : la voix par défaut du moteur porte la valeur
+      // courte `local:pocket`, pas `local:pocket:<son identifiant>`.
+      const valeur = String(value).trim();
+      return voices.some((entry) => String(entry.value || "").trim() === valeur);
+    }
     // Voix du systeme : liste vide = pas encore chargee (inconnu), donc retenue.
     const list = availableVoices();
     if (!list.length) return true;
@@ -567,9 +601,12 @@ export function resolveVoiceForChoice(voices, lang, choice) {
  *        imitée que le service n'annonce pas (service éteint, voix retirée), une
  *        ligne la PORTE quand même — un choix mémorisé ne disparaît jamais de la
  *        liste, sinon l'enregistrement l'écraserait dans le dos de l'utilisateur
+ * @param {{installed?: boolean, voices?: {id: string, value: string, label: string}[], unknown?: boolean}|null} [pocket]
+ *        état du moteur PocketTTS (troisième moteur, AJOUTÉ à la liste : aucune
+ *        voix existante n'est retirée ni déplacée)
  * @returns {{value: string, label: string}[]}
  */
-export function voiceChoiceOptions(voices, local, voicestudio, wanted) {
+export function voiceChoiceOptions(voices, local, voicestudio, wanted, pocket) {
   const list = (Array.isArray(voices) ? voices : []).filter(Boolean).slice();
   const autoLabel = "Automatique (voix de la langue de l'interface)";
   const options = [{ value: AUTO_VOICE_VALUE, label: autoLabel }];
@@ -606,6 +643,20 @@ export function voiceChoiceOptions(voices, local, voicestudio, wanted) {
       options.push({ value: entry.value, label });
     }
   }
+  // Voix PocketTTS : proposées APRÈS Piper et AVANT les voix du système —
+  // l'ordre historique des moteurs locaux ne bouge donc pas, et aucune ligne
+  // existante n'est retirée ni renommée. Une entrée par voix du moteur, puis
+  // une par voix clonée déposée par l'utilisateur : le genre est écrit EN CLAIR
+  // (exigence de l'utilisateur) et l'état d'installation est dit.
+  const pocketChoices = pocketVoiceChoices(pocket);
+  for (const entry of pocketChoices) {
+    options.push({ value: entry.value, label: entry.label });
+  }
+  // Choix Pocket mémorisé qu'aucune entrée ne porte : une ligne le garde.
+  const memoirePocket = isPocketVoiceChoice(wanted) ? String(wanted) : "";
+  if (memoirePocket && !options.some((option) => option.value === memoirePocket)) {
+    options.push({ value: memoirePocket, label: pocketUnavailableLabel(memoirePocket, pocket) });
+  }
   list.sort((a, b) => {
     const la = String(a.lang || "");
     const lb = String(b.lang || "");
@@ -632,9 +683,11 @@ export function voiceChoiceOptions(voices, local, voicestudio, wanted) {
  * @param {{installed?: boolean, dir?: string, unknown?: boolean}|null} [local] état du moteur local
  * @param {{reachable?: boolean, profiles?: {id: string, name: string}[], unknown?: boolean, hint?: string}|null} [voicestudio]
  *        état du service de voix imitée
- * @returns {{kind: "empty"|"missing"|"ok"|"local-missing"|"local-unknown"|"voicestudio-unknown"|"voicestudio-down"|"voicestudio-missing", hint: string, missing: string, value: string}}
+ * @param {{installed?: boolean, engine_present?: boolean, model_present?: boolean, voices?: {id: string}[], unknown?: boolean, hint?: string}|null} [pocket]
+ *        état du moteur PocketTTS
+ * @returns {{kind: "empty"|"missing"|"ok"|"local-missing"|"local-unknown"|"voicestudio-unknown"|"voicestudio-down"|"voicestudio-missing"|"pocket-unknown"|"pocket-missing", hint: string, missing: string, value: string}}
  */
-export function voiceChoiceStatus(voices, choice, local, voicestudio) {
+export function voiceChoiceStatus(voices, choice, local, voicestudio, pocket) {
   const list = (Array.isArray(voices) ? voices : []).filter(Boolean);
   const wanted = String(choice == null ? "" : choice).trim();
   const localModel = localVoiceModelFor(wanted);
@@ -711,6 +764,48 @@ export function voiceChoiceStatus(voices, choice, local, voicestudio) {
       value: wanted,
     };
   }
+  // Choix PocketTTS : le choix est CONSERVÉ (il ne se perd pas si les poids sont
+  // installés plus tard). Placé AVANT le contrôle des voix du système : cette
+  // valeur n'est pas une voix du système et ne doit jamais être jugée comme elle.
+  if (isPocketVoiceChoice(wanted)) {
+    const etat = pocket || null;
+    if (!etat || etat.unknown === true) {
+      return { kind: "pocket-unknown", hint: POCKET_UNKNOWN_HINT, missing: "", value: wanted };
+    }
+    if (etat.installed !== true) {
+      // Moteur absent, poids absents ou voix introuvable : la phrase de la
+      // machine dit LAQUELLE des trois, et rappelle le repli.
+      return {
+        kind: "pocket-missing",
+        hint: String(etat.hint || "").trim() || POCKET_UNKNOWN_HINT,
+        missing: "",
+        value: wanted,
+      };
+    }
+    const voices = Array.isArray(etat.voices) ? etat.voices : [];
+    // Comparaison par VALEUR (la voix par défaut du moteur porte la valeur courte
+    // `local:pocket`, pas `local:pocket:<identifiant>`).
+    const porte = voices.some((entry) => String(entry.value || "").trim() === wanted);
+    if (voices.length && !porte) {
+      return {
+        kind: "pocket-missing",
+        hint:
+          `La voix ${POCKET_ENGINE} mémorisée n'existe plus sur cet ordinateur : choisissez-en une ` +
+          "autre dans la liste (la lecture se rabat sur la voix locale en attendant).",
+        missing: wanted,
+        value: wanted,
+      };
+    }
+    return {
+      kind: "ok",
+      hint:
+        `La voix ${POCKET_ENGINE} est fabriquée sur cet ordinateur (processeur seul, hors ligne). ` +
+        "Si le moteur ou ses poids manquent, la lecture se rabat automatiquement sur la voix " +
+        "locale (Piper), puis sur la voix du système.",
+      missing: "",
+      value: wanted,
+    };
+  }
   if (!list.length) {
     // Aucune voix du systeme mais moteur local pret : le reglage reste
     // utilisable (le local prend le relais), et la note le dit.
@@ -761,6 +856,11 @@ export function readAloudStateLabel(state) {
     case "voicestudio-fallback":
       return (
         "Voix imitée indisponible : lecture avec la voix locale (Piper) " +
+        "(détail dans le journal)."
+      );
+    case "pocket-fallback":
+      return (
+        `Voix ${POCKET_ENGINE} indisponible : lecture avec la voix locale (Piper) ` +
         "(détail dans le journal)."
       );
     case "system-fallback":
@@ -995,6 +1095,22 @@ export function readAloudVoiceStudioFallbackNotice(cause) {
 }
 
 /**
+ * Phrase affichee PRES du bouton d'ecoute quand la voix PocketTTS choisie n'a
+ * pas pu parler (moteur absent, poids absents, synthese refusee).
+ *
+ * Meme emplacement, meme style, meme mecanisme que les trois autres replis :
+ * aucun second affichage n'est cree. Le nom de la voix qui prend le relais est
+ * toujours dit — jamais un silence, jamais un mensonge.
+ * @param {string} [cause] cause COURTE et lisible du repli
+ * @returns {string}
+ */
+export function readAloudPocketFallbackNotice(cause) {
+  const why = String(cause == null ? "" : cause).trim();
+  const detail = why ? ` (${why})` : "";
+  return `Voix ${POCKET_ENGINE} indisponible${detail} : lecture avec la voix locale (Piper).`;
+}
+
+/**
  * Cause COURTE du repli sur la voix de la langue de l'interface quand la voix du
  * SYSTEME memorisee dans le reglage n'existe plus dans cette fenetre : voix
  * desinstallee, autre ordinateur, autre systeme. Elle est lue dans la liste
@@ -1092,6 +1208,51 @@ export function createSpeaker(win, options = {}) {
    *   introuvable », « service injoignable »…), pour l'afficher pres du bouton
    *   d'ecoute. Absente quand elle n'apprend rien.
    */
+  /**
+   * Lit une suite de morceaux par un moteur LOCAL qui FABRIQUE le son à la
+   * demande (voix imitée VoiceStudio, voix PocketTTS) : découpage en groupes, une
+   * synthèse d'avance, coupure immédiate, signal du premier son.
+   *
+   * UN SEUL chemin pour les deux moteurs qui synthétisent : la règle de
+   * découpage et l'avance sont écrites ici une fois, jamais recopiées.
+   * @param {{chunks: string[], job: (texte: string) => Promise<{audio: string|null, reason: string}>,
+   *          token: object, playback: object, extraStops: Function[],
+   *          annoncerSon: Function, defautRaison: string}} params
+   * @returns {Promise<{outcome: {reason: string}, derniereRaison: string}>}
+   */
+  async function lireGroupesFabriques(params) {
+    const { chunks: phrases, job, token, playback, extraStops, annoncerSon, defautRaison } = params;
+    const groupes = groupSentencesForVoiceStudio(phrases);
+    let premier = true;
+    let derniereRaison = "";
+    const outcome = await playLocalChunks({
+      win: w,
+      chunks: groupes,
+      isCancelled: () => token.stopped || currentPlayback !== playback,
+      onStopRegister: (fn) => extraStops.push(fn),
+      // Le son peut démarrer bien après l'annonce (synthèse) : c'est ce
+      // démarrage-là qui compte pour la coupure de parole.
+      onSoundStart: annoncerSon,
+      synthesize: (texte) => {
+        const courant = job(texte);
+        if (premier) {
+          premier = false;
+          // Le morceau SUIVANT part EN MÊME TEMPS que le premier : fabriquer un
+          // groupe de plusieurs phrases dure plus longtemps que lire une seule
+          // phrase, d'où cette avance (aucun trou audible ensuite).
+          const suivant = groupes[1];
+          if (suivant) job(suivant);
+        }
+        return courant.then((res) => {
+          if (res && res.audio) return res.audio;
+          derniereRaison = (res && res.reason) || defautRaison;
+          return null;
+        });
+      },
+    });
+    return { outcome, derniereRaison };
+  }
+
   async function speak(text, handlers = {}) {
     const notify = (state, cause, infos) => {
       safeCall(() => handlers.onstate && handlers.onstate(state, cause));
@@ -1125,7 +1286,7 @@ export function createSpeaker(win, options = {}) {
     // voix par défaut), puis la voix du SYSTÈME. Le moteur annoncé est celui qui
     // va RÉELLEMENT parler : un repli ne ment jamais sur ce qu'on entend.
     const moteur =
-      isVoiceStudioChoice(choice) || isLocalVoiceChoice(choice)
+      isVoiceStudioChoice(choice) || isLocalVoiceChoice(choice) || isPocketVoiceChoice(choice)
         ? READ_ALOUD_ENGINE_LOCAL
         : READ_ALOUD_ENGINE_SYSTEM;
     stopReading(); // une seule lecture a la fois
@@ -1177,8 +1338,6 @@ export function createSpeaker(win, options = {}) {
     // REPLIQUÉ sur la voix locale : jamais de silence, jamais de gel.
     if (isVoiceStudioChoice(choice)) {
       const profil = voiceStudioProfileIdFor(choice);
-      const groupes = groupSentencesForVoiceStudio(chunks);
-      let derniereRaison = "";
       const memoire = new Map();
       // Une seule demande par texte : le morceau déjà demandé n'est jamais
       // redemandé, et la demande en cours est réutilisée.
@@ -1191,31 +1350,14 @@ export function createSpeaker(win, options = {}) {
         }
         return memoire.get(texte);
       };
-      let premier = true;
-      const outcome = await playLocalChunks({
-        win: w,
-        chunks: groupes,
-        isCancelled: () => token.stopped || currentPlayback !== playback,
-        onStopRegister: (fn) => extraStops.push(fn),
-        // Le son peut démarrer bien après l'annonce (synthèse) : c'est ce
-        // démarrage-là qui compte pour la coupure de parole.
-        onSoundStart: annoncerSon,
-        synthesize: (texte) => {
-          const job = demander(texte);
-          if (premier) {
-            premier = false;
-            // Le morceau SUIVANT part EN MÊME TEMPS que le premier : fabriquer
-            // un groupe de plusieurs phrases dure plus longtemps que lire une
-            // seule phrase, d'où cette avance (aucun trou audible ensuite).
-            const suivant = groupes[1];
-            if (suivant) demander(suivant);
-          }
-          return job.then((res) => {
-            if (res && res.audio) return res.audio;
-            derniereRaison = (res && res.reason) || "le service n'a pas répondu";
-            return null;
-          });
-        },
+      const { outcome, derniereRaison } = await lireGroupesFabriques({
+        chunks,
+        job: demander,
+        token,
+        playback,
+        extraStops,
+        annoncerSon,
+        defautRaison: "le service n'a pas répondu",
       });
       if (outcome.reason === "ended") {
         currentPlayback = null;
@@ -1239,6 +1381,58 @@ export function createSpeaker(win, options = {}) {
       });
       // Puis la voix locale (Piper, la voix par défaut) prend le relais, par le
       // chemin ci-dessous — aucun second chemin de lecture n'est écrit.
+      choice = localVoiceValueFor(DEFAULT_LOCAL_VOICE_MODEL);
+    }
+
+    // ── Voix PocketTTS (troisième moteur, à côté des deux autres) ───────────
+    // Même texte nettoyé, même découpage, même avance d'une synthèse : seule la
+    // DEMANDE change (commande Tauri `tts_pocket_synthesize`). Le moteur est un
+    // programme séparé ; s'il manque, ses poids avec, ou si la synthèse échoue,
+    // le repli est DIT puis la voix locale (Piper) prend le relais par le chemin
+    // ci-dessous — aucun second chemin de lecture n'est écrit.
+    if (isPocketVoiceChoice(choice)) {
+      const voixPocket = pocketVoiceIdFor(choice) || "";
+      const memoire = new Map();
+      const demander = (texte) => {
+        if (!memoire.has(texte)) {
+          memoire.set(
+            texte,
+            synthesizePocketAudio(texte, { voice: voixPocket, invoke: options.invoke }),
+          );
+        }
+        return memoire.get(texte);
+      };
+      const { outcome, derniereRaison } = await lireGroupesFabriques({
+        chunks,
+        job: demander,
+        token,
+        playback,
+        extraStops,
+        annoncerSon,
+        defautRaison: `le moteur ${POCKET_ENGINE} n'a pas répondu`,
+      });
+      if (outcome.reason === "ended") {
+        currentPlayback = null;
+        token.stopped = true;
+        notify("ended");
+        return true;
+      }
+      if (outcome.reason === "stopped" || token.stopped) return false;
+      const cause =
+        derniereRaison || localFailureShortCause(outcome.reason) || "moteur indisponible";
+      await logPocket(
+        `Voix ${POCKET_ENGINE} indisponible (${cause}) : repli sur la voix locale.`,
+        options,
+      );
+      if (token.stopped || currentPlayback !== playback) return false;
+      // Dit clairement que la lecture ne se fait pas avec la voix demandée :
+      // d'abord LÀ OÙ IL ÉCOUTE (la rangée du bouton, voir
+      // `readAloudPocketFallbackNotice`), puis dans l'état des Paramètres.
+      notify("pocket-fallback", cause, {
+        text: spokenText,
+        engine: READ_ALOUD_ENGINE_LOCAL,
+      });
+      // Puis Piper prend le relais, par le chemin ci-dessous.
       choice = localVoiceValueFor(DEFAULT_LOCAL_VOICE_MODEL);
     }
 
@@ -1732,6 +1926,9 @@ export function createReadAloudButton({ doc, win, getText, lang, invoke, refresh
         else if (state === "voicestudio-fallback") {
           setState("speaking");
           showNotice(readAloudVoiceStudioFallbackNotice(cause));
+        } else if (state === "pocket-fallback") {
+          setState("speaking");
+          showNotice(readAloudPocketFallbackNotice(cause));
         } else {
           setState("idle");
         }

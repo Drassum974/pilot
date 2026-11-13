@@ -20,8 +20,9 @@
 //
 // La grammaire des valeurs acceptées est CELLE DÉJÀ GÉRÉE, et elle n'est pas
 // recopiée ici : voix du système (identité stable), `local:piper` /
-// `local:piper:<modèle>` (`isLocalVoiceChoice`) et
-// `local:voicestudio:<profil>` (`isVoiceStudioChoice`).
+// `local:piper:<modèle>` (`isLocalVoiceChoice`), `local:voicestudio:<profil>`
+// (`isVoiceStudioChoice`) et `local:pocket[:<voix>]` (`isPocketVoiceChoice`) —
+// les trois moteurs locaux, sans exception ni préférence.
 //
 // Rien n'est lu du disque, aucune API de la fenêtre n'est appelée : les
 // fonctions sont PURES (ou reçoivent ce qui manque), donc testables sous Node.
@@ -30,6 +31,7 @@
 
 import { isLocalVoiceChoice } from "./local-voice.js";
 import { isVoiceStudioChoice } from "./voicestudio-voice.js";
+import { isPocketVoiceChoice } from "./pocket-voice.js";
 
 /**
  * Clé du champ de configuration qui mémorise les voix des personnages
@@ -80,6 +82,7 @@ export function isUsableVoiceValue(raw) {
   if (!value) return false;
   if (isLocalVoiceChoice(value)) return true; // local:piper / local:piper:<modèle>
   if (isVoiceStudioChoice(value)) return true; // local:voicestudio:<profil>
+  if (isPocketVoiceChoice(value)) return true; // local:pocket / local:pocket:<voix>
   // Toute autre valeur `local:…` désigne un moteur que Pilot ne sait pas lire :
   // elle n'est jamais retenue (le réglage retombe sur la voix générale).
   if (value.startsWith("local:")) return false;
