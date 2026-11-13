@@ -12,7 +12,10 @@
 //   - NI la parole de l'assistant, NI la parole de l'utilisateur, NI l'etat
 //     d'ecoute du micro ne la retiennent. C'est le point central : les etats de
 //     conversation ne sont PLUS une condition de non-masquage ;
-//   - elle revient au geste : souris, clavier, ou parole.
+//   - elle ne revient QUE sur un geste de SOURIS (decision du proprietaire du
+//     2026-11-16 : « la barre apparait des qu'il parle, ce n'est pas voulu ; le
+//     mouvement de souris est la seule cause d'apparition »). Une frappe ne
+//     l'allume pas : elle PROLONGE un bas deja visible.
 //
 // Les deux circonstances deja verrouillees ailleurs restent (le message de panne
 // du micro et la question de l'assistant en attente) : ce ne sont pas des etats
@@ -25,8 +28,8 @@
 //   3. la barre retenue par le seul FOCUS dans le champ (un champ vide garde le
 //      curseur apres un envoi : il retenait alors le bas pour toute la session) ;
 //   4. la disparition des deux seules raisons d'usage (champ rempli, pointeur) ;
-//   5. la perte du reveil par la PAROLE (le seul geste qui ne passe par aucun
-//      des quatre ecouteurs de pointeur / clavier).
+//   5. le RETOUR du reveil par la PAROLE (voix detectee, transcription, texte
+//      dicte qui retient le bas par la regle 2).
 //
 // Les commentaires sont en ASCII ; les chaines de l'interface sont copiees
 // telles quelles.
@@ -130,22 +133,43 @@ describe("3. les DEUX seules raisons d'usage sont intactes", () => {
   });
 });
 
-describe("4. la barre REVIENT quand on parle (le seul geste sans pointeur ni clavier)", () => {
-  it("prendre la parole reveille la barre par le reveil EXISTANT", () => {
-    // La parole ne passe par aucun des quatre ecouteurs (pointeur, clic, molette,
-    // clavier) : c'est `vocalBargeIn` (voix detectee par la garde du micro) qui
-    // doit appeler le reveil. Aucun second minuteur n'est cree pour autant.
+describe("4. la parole NE fait pas revenir la barre (decision du 2026-11-16)", () => {
+  it("prendre la parole n'appelle plus le reveil", () => {
+    // LA PAROLE N'EST PLUS UN DECLENCHEUR D'APPARITION. Ce test remplace celui du
+    // 2026-11-13 qui exigeait l'inverse : la voix detectee par la garde du micro
+    // (`vocalBargeIn`) REVEILLAIT le bas — c'est exactement le defaut constate par
+    // le proprietaire (« la barre apparait des qu'il parle »).
     const prise = sliceSource(SUPER, "  function vocalBargeIn(rapport) {", "\n  function enterVocal", 400);
-    expect(prise).toMatch(/vocalWakeChrome\(\);/);
+    expect(prise).not.toMatch(/vocalWakeChrome\(/);
+    expect(prise).not.toMatch(/vocalKeepChromeAlive\(/);
+    // La decision est quand meme rejouee : l'etat de l'ecran suit la lecture.
+    expect(prise).toMatch(/applyVocalState\(\);/);
     // Et le reveil reste bien celui qui existe : un seul minuteur, 10 000 ms.
     expect(SUPER.match(/vocalChromeTimer = setTimeout\(/g) || []).toHaveLength(1);
-    // UNE seule pose : le geste. L'entree du mode n'en pose plus (le bas y est
-    // efface d'emblee).
-    expect(SUPER.match(/vocalRestartChromeTimer\(\);/g) || []).toHaveLength(1);
+    // DEUX poses, toutes deux des gestes de souris : le reveil, et la variante
+    // « prolonger seulement » des touches (qui ne repose que si le decompte
+    // tourne deja). L'entree du mode n'en pose aucune (le bas y est efface
+    // d'emblee).
+    expect(SUPER.match(/vocalRestartChromeTimer\(\);/g) || []).toHaveLength(2);
   });
 
-  it("la dictee reveille aussi la barre (les mots arrivent dans le champ)", () => {
-    const dictee = sliceSource(SUPER, "rec.onresult", "vocalWakeChrome();", 60);
+  it("la dictee n'appelle plus le reveil : elle ne fait que rejouer la decision", () => {
+    const dictee = sliceSource(SUPER, "rec.onresult", "vocalNoteWord();", 400);
     expect(dictee).toMatch(/inputEl\.value = /);
+    expect(dictee).not.toMatch(/vocalWakeChrome\(/);
+    expect(dictee).not.toMatch(/vocalKeepChromeAlive\(/);
+    expect(dictee).toMatch(/vocalSyncChrome\(\);/);
+  });
+
+  it("le texte de la DICTEE ne compte pas comme un champ rempli", () => {
+    // Regle 2 : « le champ contient du texte ». Un texte dicte n'est pas un texte
+    // SAISI : sans cette exclusion, chaque phrase prononcee rallumait le bas pour
+    // la duree d'un envoi.
+    expect(SYNC).toMatch(/saisie:\s*texte\.trim\(\) !== "" && !vocalChampDicte/);
+    // Le drapeau est pose par le SEUL ecrivain du moteur, et retire par la frappe.
+    const dictee = sliceSource(SUPER, "rec.onresult", "vocalNoteWord();", 400);
+    expect(dictee).toMatch(/inputEl\.value = preText \+ sep \+ transcript;[\s\S]*vocalChampDicte = true;/);
+    const frappe = sliceSource(SUPER, 'inputEl.addEventListener("input"', "});", 60);
+    expect(frappe).toMatch(/vocalChampDicte = false;/);
   });
 });

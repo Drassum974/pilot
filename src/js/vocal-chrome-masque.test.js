@@ -263,15 +263,21 @@ describe("3. le branchement : un minuteur, un point d'ecriture, quatre ecouteurs
     const corps = corpsFonction(SUPER, "function vocalRestartChromeTimer(");
     expect(corps).toMatch(/clearVocalChromeTimer\(\)/);
     expect(corps).toMatch(/VOCAL_CHROME_IDLE_MS/);
-    // Pose du minuteur : UN endroit, et un seul — le GESTE (`vocalWakeChrome`).
+    // Pose du minuteur : le GESTE (`vocalWakeChrome`) et sa variante « prolonger
+    // seulement » (`vocalKeepChromeAlive`, reservee aux touches : elle ne repose le
+    // minuteur QUE s'il tourne deja — decision du proprietaire du 2026-11-16 : la
+    // seule cause d'apparition est la souris).
     // L'entree dans le mode ne le pose plus : le bas y est efface d'emblee
     // (demande du proprietaire du 2026-11-14, « par defaut, ce bloc ne doit pas
     // s'afficher »). Un second appel ferait un second decompte, ou rallumerait
     // l'ecran a l'ouverture.
     const poses = (SUPER.match(/vocalRestartChromeTimer\(\);/g) || []).length;
-    expect(poses).toBe(1);
+    expect(poses).toBe(2);
     expect(corpsFonction(SUPER, "function vocalWakeChrome(")).toMatch(
       /vocalRestartChromeTimer\(\)/,
+    );
+    expect(corpsFonction(SUPER, "function vocalKeepChromeAlive(")).toContain(
+      "if (vocalChromeTimer) vocalRestartChromeTimer();",
     );
   });
 
@@ -314,17 +320,20 @@ describe("3. le branchement : un minuteur, un point d'ecriture, quatre ecouteurs
     expect(corps).toMatch(/if \(!vocalChromeWakeKey/);
   });
 
-  it("la dictee et la frappe font revenir le bas (deux appels, aucune logique)", () => {
-    // 1. Le texte dicte : il revient dans le champ, et le reveil est APRES
-    //    l'ecriture et le redimensionnement — la zone est deja remplie quand le
-    //    bas revient (jamais un bas reveille sur un champ vide).
-    const dictee = sliceSource(SUPER, "rec.onresult", "vocalWakeChrome();", 60);
+  it("la frappe PROLONGE le bas deja la, et la dictee ne le rallume plus", () => {
+    // 1. Le texte DICTE n'appelle plus le reveil (decision du proprietaire du
+    //    2026-11-16 : « la barre apparait des qu'il parle, c'est refuse »). Le
+    //    chemin ne fait que rejouer la decision, sans relancer les 10 s.
+    const dictee = sliceSource(SUPER, "rec.onresult", "vocalNoteWord();", 400);
     expect(dictee).toMatch(/inputEl\.value = /);
     expect(dictee).toMatch(/resizeInput\(\);/);
+    expect(dictee).not.toMatch(/vocalWakeChrome\(/);
     // 2. L'ecouteur `input` de LA zone de saisie (la frappe de l'utilisateur),
-    //    celui qui existe deja : aucun second ecouteur n'est pose.
+    //    celui qui existe deja : aucun second ecouteur n'est pose. La frappe
+    //    PROLONGE (`vocalKeepChromeAlive`) — elle n'allume pas.
     const frappe = sliceSource(SUPER, 'inputEl.addEventListener("input"', "});", 60);
-    expect(frappe).toMatch(/vocalWakeChrome\(\)/);
+    expect(frappe).toMatch(/vocalKeepChromeAlive\(\)/);
+    expect(frappe).not.toMatch(/vocalWakeChrome\(/);
     expect(frappe).toMatch(/voiceUserTookOver = true/);
   });
 });

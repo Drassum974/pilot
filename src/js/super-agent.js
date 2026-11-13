@@ -5105,6 +5105,13 @@ export async function createSuperAgent(container) {
   let vocalChromePointeur = null;
   let vocalChromeRepere = null;
   let vocalChromeGestePointeur = false;
+  //  - `vocalChampDicte` : le contenu du champ vient de la DICTEE, pas de
+  //    l'utilisateur. Une transcription n'est PAS un texte saisi : elle ne
+  //    retient donc pas le bas (regle 2 de `vocal-chrome.js`, decision du
+  //    proprietaire du 2026-11-16 : la parole et la transcription ne font jamais
+  //    apparaitre la barre). Pose par le SEUL ecrivain du moteur de
+  //    reconnaissance, retire par la frappe de l'utilisateur.
+  let vocalChampDicte = false;
   // ── L'ETAT NU : TOUT MASQUER SAUF LE PORTRAIT (section 6 de la conception) ──
   // Un SEUL booleen, en MEMOIRE seulement : ni `localStorage`, ni fichier, ni
   // entree de configuration (section 6.6). Il repart a « tout visible » a chaque
@@ -5577,10 +5584,15 @@ let vocalMotsDeReveil = [];
   if (inputEl) {
     inputEl.addEventListener("input", () => {
       if (voiceActive) voiceUserTookOver = true;
-      // §2.5 : une frappe REVEILLE le bas de l'ecran Vocal (et le decompose
-      // repart). Hors du mode, `vocalWakeChrome` ne fait rien du tout :
-      // l'ecouteur reste celui du champ, il n'est ni duplique ni conditionnel.
-      vocalWakeChrome();
+      // LE TEXTE EST CELUI DE L'UTILISATEUR : il ne vient pas de la dictee, donc
+      // il a le droit de retenir le bas (regle 2 de `vocal-chrome.js`).
+      vocalChampDicte = false;
+      // §2.5 : une frappe PROLONGE le bas de l'ecran Vocal (et le decompose
+      // repart) — elle ne l'ALLUME jamais (decision du proprietaire du
+      // 2026-11-16 : le seul declencheur d'apparition est la souris). Hors du
+      // mode, les deux appels ne font rien du tout : l'ecouteur reste celui du
+      // champ, il n'est ni duplique ni conditionnel.
+      vocalKeepChromeAlive();
     });
   }
 
@@ -5936,20 +5948,20 @@ let vocalMotsDeReveil = [];
       const sep = preText && !preText.endsWith(" ") ? " " : "";
       inputEl.value = preText + sep + transcript;
       resizeInput();
-      // §2.5 : un texte DICTE occupe la zone — le bas revient, comme pour une
-      // frappe (l'ecriture du moteur n'emet aucun `input`, c'est donc ici que
-      // l'ecran l'apprend).
-      //
-      // CORRECTIF « la barre du bas ne s'efface plus » (2026-11-15) : un resultat
-      // SANS UN SEUL MOT n'est pas un texte dicte, et pourtant il REVEILLAIT le
-      // bas exactement comme un mot (decompte remis a zero). Le service de
-      // reconnaissance en emet en continu, y compris micro arme et piece
-      // silencieuse — et la conversation parlee arme justement la dictee AU
-      // REPOS : le compte a rebours repartait donc avant son terme et le bas ne
-      // s'effacait jamais. Le reveil est desormais reserve au texte REEL ; un
-      // resultat vide ne fait que rejouer la decision (le champ a pu changer).
-      if (transcript.trim()) vocalWakeChrome();
-      else vocalSyncChrome();
+      // CE TEXTE-LA VIENT DE LA DICTEE, PAS DE L'UTILISATEUR (decision du
+      // proprietaire du 2026-11-16 : « elle ne doit JAMAIS apparaitre a cause de
+      // la parole »). L'ecriture du moteur n'emet aucun `input` : c'est donc ICI,
+      // et au seul ici, que l'ecran apprend que le champ est rempli par la voix.
+      // La regle 2 (champ rempli) ne le retient donc plus.
+      vocalChampDicte = true;
+      // CORRECTIF « la barre du bas ne s'efface plus » (2026-11-15), conserve :
+      // le reveil n'est plus appele du tout par la dictee (un resultat VIDE comme
+      // un resultat PARLE ne doit rien rallumer — le service de reconnaissance en
+      // emet en continu, micro arme et piece silencieuse, et la conversation
+      // parlee arme justement la dictee AU REPOS). Ce chemin ne fait donc plus
+      // que REJOUER la decision : la classe du bas suit le champ, sans jamais
+      // relancer les 10 s.
+      vocalSyncChrome();
       // ENVOI SUR SILENCE : chaque TEXTE recupere (provisoire ou definitif)
       // repousse l'echeance du delai REGLE (2 s par defaut, 1 a 5 s). Un texte
       // identique au precedent n'est pas un nouveau mot : il ne la repousse pas.
@@ -7063,8 +7075,10 @@ let vocalMotsDeReveil = [];
    * secondes sans souris »), repart de zero a chaque geste. Il n'en existe qu'un (cette variable), il est toujours annule avant
    * d'etre repose, et il est retire a la sortie du mode : aucune minuterie ne
    * survit a l'ecran. Il n'est JAMAIS pose a l'entree du mode : le bas y est
-   * efface d'emblee, et seule une fonction de reveil (`vocalWakeChrome`, donc un
-   * geste ou la prise de parole) peut le mettre en marche.
+   * efface d'emblee, et seuls un GESTE DE SOURIS (`vocalWakeChrome`) ou sa
+   * variante « prolonger seulement » du clavier (`vocalKeepChromeAlive`, qui ne
+   * repose le minuteur que s'il tourne deja) peuvent le mettre en marche — la
+   * PAROLE ne le peut pas (decision du proprietaire du 2026-11-16).
    */
   function vocalRestartChromeTimer() {
     clearVocalChromeTimer();
@@ -7157,11 +7171,14 @@ let vocalMotsDeReveil = [];
       // `vocal-chrome.js`). Lire la file ici est la seule chose dont ce point
       // d'ecriture a besoin : aucune decision n'est prise dans ce bloc.
       question: hasPendingQuestion(),
-      // Regle 2 : le champ CONTIENT DU TEXTE. Le FOCUS n'est plus une raison :
-      // un champ vide qui gardait le curseur (apres un envoi, un enchainement de
-      // dictee ou une question) retenait le bas pour toute la session — c'etait
-      // la cause « la barre ne s'efface plus » du 2026-11-13.
-      saisie: texte.trim() !== "",
+      // Regle 2 : le champ CONTIENT DU TEXTE SAISI PAR L'UTILISATEUR. Le FOCUS
+      // n'est plus une raison : un champ vide qui gardait le curseur (apres un
+      // envoi, un enchainement de dictee ou une question) retenait le bas pour
+      // toute la session — c'etait la cause « la barre ne s'efface plus » du
+      // 2026-11-13. Le texte de la DICTEE ne compte plus non plus (decision du
+      // proprietaire du 2026-11-16 : la parole et la transcription ne font jamais
+      // apparaitre la barre) : c'est ce que dit `vocalChampDicte`.
+      saisie: texte.trim() !== "" && !vocalChampDicte,
       micFerme: vocalMicFerme,
       // Regle 3 : une POSITION ne suffit pas, c'est le GESTE qui retient le bas
       // (voir `vocalChromeGestePointeur`). Les deux faits sont donnes ensemble.
@@ -7235,9 +7252,33 @@ let vocalMotsDeReveil = [];
     vocalSyncChrome();
   }
 
-  // Les QUATRE facons de reveiller le bas (§2.5) : pointeur qui bouge de 4 px,
-  // clic, molette, clavier — sauf Echap (la touche de sortie du mode). Posees a
-  // l'entree du mode, retirees a la sortie : aucun ecouteur ne survit.
+  /**
+   * UNE TOUCHE PROLONGE, ELLE N'ALLUME PAS (decision du proprietaire du
+   * 2026-11-16).
+   *
+   * La regle voulue se lit en deux temps : « elle APPARAIT uniquement quand la
+   * souris bouge » et « apres un delai d'inactivite, SANS mouvement de souris ni
+   * FRAPPE, elle redisparait ». Un clavier ne peut donc pas etre un declencheur
+   * d'apparition, mais il doit compter comme activite quand le bas est deja la.
+   *
+   * Consequence, et c'est tout ce que fait cette fonction : le minuteur n'est
+   * REPOSE que s'il tourne deja (`vocalChromeTimer`), c'est-a-dire si un geste de
+   * souris a ouvert la fenetre. Sans decompte en cours, il ne se passe rien
+   * d'autre que la relecture de la decision : la frappe ne peut donc pas allumer
+   * le bas a elle seule, mais un texte saisi continue de le retenir par la regle
+   * 2 (`saisie`), comme avant.
+   */
+  function vocalKeepChromeAlive() {
+    if (!vocalOverlay) return;
+    if (vocalChromeTimer) vocalRestartChromeTimer();
+    vocalSyncChrome();
+  }
+
+  // Les QUATRE ecouteurs du bas (§2.5). Trois ALLUMENT (pointeur qui bouge de
+  // 4 px, clic, molette) ; le quatrieme (clavier), sauf Echap, se contente de
+  // PROLONGER un bas deja visible (decision du proprietaire du 2026-11-16 :
+  // « la souris est la seule cause d'apparition »). Posees a l'entree du mode,
+  // retirees a la sortie : aucun ecouteur ne survit.
   const onVocalChromePointerMove = (e) => {
     if (!vocalOverlay) return;
     const position = { x: e.clientX, y: e.clientY };
@@ -7260,7 +7301,9 @@ let vocalMotsDeReveil = [];
   };
   const onVocalChromeKeydown = (e) => {
     if (!vocalChromeWakeKey(e && e.key)) return;
-    vocalWakeChrome();
+    // Une touche PROLONGE le bas deja visible, elle ne l'allume jamais : le seul
+    // declencheur d'apparition est la souris (`vocalKeepChromeAlive`).
+    vocalKeepChromeAlive();
   };
 
   function attachVocalChromeListeners() {
@@ -8245,12 +8288,11 @@ let vocalMotsDeReveil = [];
     // saisie reprend la main : le curseur y retourne pour dicter ou corriger
     // tout de suite. Aucune modale ouverte ne se fait voler le curseur.
     //
-    // LA BARRE REVIENT AUSSI QUAND ON PARLE (decision du proprietaire du
-    // 2026-11-13 : « elle reapparait quand je bouge la souris, que je tape au
-    // clavier ou que je PARLE »). Parler ne passe par aucun des quatre
-    // ecouteurs (deplacement, clic, molette, touche) : c'est donc le reveil
-    // EXISTANT qui est appele ici, sans second minuteur ni nouvelle regle.
-    vocalWakeChrome();
+    // LA BARRE NE REVIENT PLUS PARCE QU'ON PARLE (decision du proprietaire du
+    // 2026-11-16, qui remplace celle du 2026-11-13 : « la barre apparait des
+    // qu'il parle, c'est refuse ; le mouvement de souris est la seule cause
+    // d'apparition »). Le reveil n'est donc plus appele ici : `applyVocalState`
+    // rejoue la decision sans poser de minuteur, et l'ecran reste nu.
     applyVocalState();
     if (inputEl && !document.querySelector(".modal:not(.hidden)")) {
       try {

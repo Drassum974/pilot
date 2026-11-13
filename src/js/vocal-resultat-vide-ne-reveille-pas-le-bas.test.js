@@ -1,26 +1,32 @@
-// Tests — UN RESULTAT DE DICTEE VIDE NE REVEILLE PAS LE BAS DE L'ECRAN VOCAL
-// (`spec_modes_ecran_vocal.md` § 4bis, correctif du 2026-11-15).
+// Tests — AUCUN RESULTAT DE DICTEE NE REVEILLE LE BAS DE L'ECRAN VOCAL
+// (`spec_modes_ecran_vocal.md` § 4bis ; decisions du 2026-11-15 puis du
+// 2026-11-16).
 //
-// LE DEFAUT VERROUILLE ICI (rapporte par le proprietaire : « la barre du bas ne
-// s'efface plus ») : dans le gestionnaire de resultat de la dictee
-// (`rec.onresult`), `vocalWakeChrome()` etait appele a CHAQUE resultat, sans
-// regarder s'il contenait un seul mot. Or le moteur de reconnaissance emet des
-// resultats VIDES en continu — micro arme, piece silencieuse — et l'ecran Vocal
-// arme justement la dictee AU REPOS. Le decompte etait donc remis a zero avant
-// son terme, a repetition, et le bas ne s'effacait plus jamais.
+// DEUX DEFAUTS, DANS L'ORDRE, ET LA MEME CONCLUSION :
+//  - 2026-11-15 (« la barre du bas ne s'efface plus ») : dans le gestionnaire de
+//    resultat de la dictee (`rec.onresult`), `vocalWakeChrome()` etait appele a
+//    CHAQUE resultat, sans regarder s'il contenait un seul mot. Or le moteur
+//    emet des resultats VIDES en continu — micro arme, piece silencieuse — et
+//    l'ecran Vocal arme justement la dictee AU REPOS : le decompte repartait donc
+//    avant son terme, a repetition. Le reveil avait ete reserve au texte REEL ;
+//  - 2026-11-16 (« la barre apparait des qu'il parle ») : ce reste de reveil
+//    etait encore un declencheur d'apparition. Le proprietaire a tranche : la
+//    SEULE cause d'apparition est le mouvement de souris. La dictee n'appelle
+//    donc PLUS le reveil du tout, et son texte ne compte pas comme un champ
+//    rempli (regle 2).
 //
 // CE QUE CE FICHIER EXIGE, et pourquoi il echoue si l'on revient en arriere :
-//   1. BRANCHEMENT — dans le gestionnaire, le SEUL appel au reveil est gouverne
-//      par le texte (`if (transcript.trim()) vocalWakeChrome();`), et le chemin
-//      vide ne fait que rejouer la decision (`else vocalSyncChrome();`). Un
-//      `vocalWakeChrome();` inconditionnel fait tomber le test ;
-//   2. CONSEQUENCE — seul `vocalWakeChrome` repose le decompte
-//      (`vocalRestartChromeTimer`), `vocalSyncChrome` n'en pose JAMAIS : un
-//      resultat vide ne peut donc pas relancer les 10 s (`VOCAL_CHROME_IDLE_MS`) ;
+//   1. BRANCHEMENT — dans le gestionnaire, ZERO appel au reveil (ni nu, ni
+//      gouverne par le texte). Le chemin ne fait que rejouer la decision
+//      (`vocalSyncChrome()`), et le texte ecrit par le moteur est marque comme
+//      DICTE (`vocalChampDicte = true`) : la regle 2 ne le retient plus ;
+//   2. CONSEQUENCE — seul `vocalWakeChrome` (et sa variante « prolonger »)
+//      repose le decompte (`vocalRestartChromeTimer`), `vocalSyncChrome` n'en
+//      pose JAMAIS : une transcription ne peut donc pas relancer les 10 s
+//      (`VOCAL_CHROME_IDLE_MS`) ;
 //   3. SORTIE — un champ vide n'interdit pas le masquage (decision PURE de
 //      `vocal-chrome.js`) : le decompte arrive a son terme et le bas s'efface.
-//      Sans le point 1, ce troisieme point ne se produisait jamais.
-//
+////
 // Les commentaires sont en ASCII ; les chaines du source sont copiees telles
 // quelles. Decoupage de source VERIFIE (`sliceSource` leve si une ancre
 // disparait) : un fragment vide ne peut pas rendre une assertion vraie par
@@ -65,46 +71,48 @@ function lignesDeReveil(src) {
 }
 
 // ---------------------------------------------------------------------------
-describe("1. le branchement : le reveil est reserve au TEXTE dicte", () => {
-  it("un resultat VIDE ne peut pas appeler `vocalWakeChrome` (aucun appel nu)", () => {
-    // Le defaut d'origine, tel qu'il etait ecrit : un appel inconditionnel a
-    // chaque resultat, vide compris. Il ne doit plus exister.
+describe("1. le branchement : la dictee ne reveille plus le bas", () => {
+  it("un resultat VIDE comme un resultat PARLE reste sans effet sur le bas", () => {
+    // Le defaut d'origine, tel qu'il etait ecrit : un appel a chaque resultat. Puis
+    // sa correction du 2026-11-15, gouvernee par le texte — encore un declencheur
+    // d'apparition, refuse le 2026-11-16 (« la barre apparait des qu'il parle »).
     const appels = lignesDeReveil(GESTIONNAIRE);
-    expect(appels.length, `appels trouves : ${JSON.stringify(appels)}`).toBe(1);
-    // Le SEUL appel restant est celui de la branche « il y a du texte ».
-    expect(appels[0]).toBe("if (transcript.trim()) vocalWakeChrome();");
-    // Et un `vocalWakeChrome();` seul sur sa ligne serait exactement le defaut.
-    expect(GESTIONNAIRE).not.toMatch(/(^|\n)\s*vocalWakeChrome\(\);\s*(\n|$)/);
+    expect(appels, `appels trouves : ${JSON.stringify(appels)}`).toEqual([]);
+    expect(GESTIONNAIRE).not.toMatch(/(^|\n)\s*vocalWakeChrome\(\);/);
+    expect(GESTIONNAIRE).not.toMatch(/transcript\.trim\(\)\) vocalWakeChrome/);
+    // La variante « prolonger seulement » est elle aussi interdite ici : une
+    // transcription n'est pas une frappe.
+    expect(GESTIONNAIRE).not.toMatch(/vocalKeepChromeAlive\(/);
   });
 
-  it("le chemin VIDE rejoue la decision sans toucher au decompte", () => {
+  it("le chemin rejoue la decision sans toucher au decompte", () => {
     // `vocalSyncChrome` applique la classe sans jamais reposer de minuteur (voir
     // le bloc 2) : le decompte en cours continue sa route, il ne repart pas.
-    expect(GESTIONNAIRE).toMatch(/else\s+vocalSyncChrome\(\);/);
-    // Le commentaire du correctif est juste au-dessus du branchement : il porte
-    // la cause, pas une seconde logique.
+    expect(GESTIONNAIRE).toMatch(/vocalSyncChrome\(\);/);
+    // Le commentaire du correctif est toujours la : il porte la cause, pas une
+    // seconde logique.
     expect(GESTIONNAIRE).toMatch(/CORRECTIF « la barre du bas ne s'efface plus »/);
   });
 
-  it("le reveil vient APRES l'ecriture du texte et le redimensionnement", () => {
-    // L'ordre compte : le champ doit deja contenir le mot quand le bas revient
-    // (sinon on reveille le bas sur un champ vide, et la decision le remasque
-    // aussitot). Ce point est celui du test du masque, verifie ici sur le meme
-    // fragment pour que ce fichier tienne seul.
+  it("le texte pose par le moteur est marque DICTE, apres l'ecriture du champ", () => {
+    // L'ordre compte : le drapeau se pose sur le texte qui vient d'etre ecrit
+    // (sinon la regle 2 pourrait lire l'ancien etat du champ). Ce point est celui
+    // du test du masque, verifie ici sur le meme fragment pour que ce fichier
+    // tienne seul.
     const iEcriture = GESTIONNAIRE.indexOf("inputEl.value = preText + sep + transcript;");
     const iResize = GESTIONNAIRE.indexOf("resizeInput();", iEcriture);
-    const iReveil = GESTIONNAIRE.indexOf("if (transcript.trim()) vocalWakeChrome();");
+    const iDrapeau = GESTIONNAIRE.indexOf("vocalChampDicte = true;");
     expect(iEcriture).toBeGreaterThan(-1);
     expect(iResize).toBeGreaterThan(iEcriture);
-    expect(iReveil).toBeGreaterThan(iResize);
+    expect(iDrapeau).toBeGreaterThan(iResize);
   });
 
   it("aucun AUTRE chemin de la dictee ne reveille le bas", () => {
     // Tout le demarrage de la dictee : le bouton 🎙️ et l'armement automatique y
-    // passent. Un second appel (dans `onstart`, `onend`, une reprise de session)
-    // rendrait le correctif inoperant sans qu'on le voie.
+    // passent. Un appel (dans `onstart`, `onend`, une reprise de session)
+    // rallumerait le bas sans qu'on le voie.
     const session = sliceSource(SUPER, "function startVoiceInput(", "function immersiveAssistantName(", 400);
-    expect(lignesDeReveil(session)).toEqual(["if (transcript.trim()) vocalWakeChrome();"]);
+    expect(lignesDeReveil(session)).toEqual([]);
   });
 });
 

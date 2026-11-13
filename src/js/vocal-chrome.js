@@ -21,6 +21,25 @@
  * decision ci-dessous rend deja « masquage permis » quand rien ne la retient,
  * il n'y a donc AUCUNE regle d'entree a ajouter : c'est l'appelant qui ne pose
  * plus de minuteur a l'ouverture, et le premier rendu nait avec la classe.
+ *
+ * LE SEUL DECLENCHEUR D'APPARITION EST LA SOURIS (decision du proprietaire du
+ * 2026-11-16, qui remplace celle du 2026-11-13 : « la barre apparait des qu'il
+ * parle, en plus du mouvement de souris ; c'est exactement ce comportement qui
+ * est refuse »). Autrement dit :
+ *
+ *  - le bas APPARAIT sur un geste de SOURIS — deplacement au-dela du seuil,
+ *    clic, molette (les trois ecouteurs de `super-agent.js`) ;
+ *  - une FRAPPE ne l'allume jamais : elle PROLONGE le decompte quand il tourne
+ *    deja (`vocalKeepChromeAlive`), ce qui est exactement « inactif = ni
+ *    mouvement de souris ni frappe » ;
+ *  - ni la parole, ni l'ecoute, ni un changement d'etat (repos, ecoute, veille,
+ *    reveil, transcription en cours) ne peuvent le faire apparaitre : aucun de
+ *    ces chemins n'appelle le reveil, et le texte de la DICTEE ne compte pas
+ *    comme un champ rempli (`saisie` est faux quand il vient de la voix).
+ *
+ * Ce module ne change pas de forme pour autant : il ne voit toujours QUE des
+ * faits d'usage (`saisie`, `micFerme`, `pointeurActif`, `pointeurGeste`,
+ * `question`) et AUCUN etat de conversation, ce que verifient les tests.
  */
 
 /**
@@ -31,7 +50,9 @@
  * option, aucun jeton, aucune variante — une seule constante, lue par le seul
  * minuteur de `super-agent.js` (`vocalChromeTimer`). Elle valait 2 500 ms ; le
  * reste du mecanisme ne bouge pas d'une ligne (quatre regles d'interdiction,
- * seuil de geste de 4 px, reveil par toute frappe sauf Echap).
+ * seuil de geste de 4 px). Depuis la decision du 2026-11-16, la frappe ne
+ * REVEILLE plus le bas : elle ne fait que prolonger un decompte deja en cours
+ * (sauf `Echap`, qui sort du mode).
  */
 export const VOCAL_CHROME_IDLE_MS = 10000;
 
@@ -53,11 +74,15 @@ export const VOCAL_CHROME_HIDDEN_CLASS = "vocal-chrome-hidden";
  *
  *  1. **Le micro est ferme** (refus, absence, occupation, panne) : le bouton
  *     « Autoriser le micro » est le seul recours, il ne s'efface jamais.
- *  2. **Le champ de saisie CONTIENT DU TEXTE** : brouillon, ou dictee en cours de
- *     transcription. Un champ VIDE ne retient rien, meme avec le curseur dedans :
- *     le focus n'est pas du texte (decision du proprietaire du 2026-11-13 — un
- *     champ vide qui gardait le curseur apres un envoi retenait le bas pour
- *     toute la session, et la barre ne s'effacait plus).
+ *  2. **Le champ de saisie CONTIENT DU TEXTE SAISI PAR L'UTILISATEUR** :
+ *     brouillon tape au clavier. Un champ VIDE ne retient rien, meme avec le
+ *     curseur dedans : le focus n'est pas du texte (decision du proprietaire du
+ *     2026-11-13 — un champ vide qui gardait le curseur apres un envoi retenait
+ *     le bas pour toute la session, et la barre ne s'effacait plus). Le texte
+ *     ecrit par la DICTEE ne retient pas non plus (decision du proprietaire du
+ *     2026-11-16 : la parole et la transcription ne font JAMAIS apparaitre la
+ *     barre) : l'appelant passe donc `saisie: false` pour un champ qu'il n'a pas
+ *     rempli lui-meme (`vocalChampDicte` dans `super-agent.js`).
  *  3. **Le pointeur vise la zone du bas** — mais par le GESTE, jamais par la
  *     seule position : on ne cache pas ce que la souris vient de viser.
  *     C'est ce que dit le fait `pointeurGeste` (remarque du proprietaire du
@@ -83,8 +108,9 @@ export const VOCAL_CHROME_HIDDEN_CLASS = "vocal-chrome-hidden";
  * LA PAROLE N'EST PLUS UNE RAISON (decision ferme du proprietaire du
  * 2026-11-13) : ni « Pilot parle », ni « l'utilisateur parle », ni « le micro
  * ecoute » ne retiennent le bas. La barre s'efface apres 10 000 ms de repos QUOI
- * QU'IL ARRIVE (delai porte par `VOCAL_CHROME_IDLE_MS`), et elle revient au geste
- * — souris, clavier, ou parole. L'ancienne
+ * QU'IL ARRIVE (delai porte par `VOCAL_CHROME_IDLE_MS`), et elle ne revient que
+ * sur un geste de SOURIS (decision du proprietaire du 2026-11-16 : la parole ne
+ * la fait plus revenir — l'ancienne
  * regle 3 a donc ete SUPPRIMEE, avec le fait d'usage qui la nourrissait (voir
  * `docs/rapports/RAPPORT-barre-du-bas-ne-s-efface-pas.md`) : il n'existe plus
  * aucun chemin par lequel un etat de conversation peut retenir le bas.
@@ -123,9 +149,12 @@ export function vocalChromeClass(visible) {
 }
 
 /**
- * Cette touche reveille-t-elle le bas ? PURE.
- * Toute frappe reveille le bas, SAUF Echap : c'est la touche de sortie du mode
- * (§8), elle ne doit pas rallumer l'ecran au moment ou on le quitte.
+ * Cette touche peut-elle PROLONGER le bas ? PURE.
+ * Toute frappe le prolonge, SAUF Echap : c'est la touche de sortie du mode
+ * (§8), elle ne doit pas relancer le decompte au moment ou on le quitte.
+ * Depuis la decision du 2026-11-16, cette fonction ne dit PAS « la barre
+ * apparait » : elle dit seulement « la frappe compte comme une activite » — un
+ * appelant ne peut donc plus allumer le bas avec une touche.
  * @param {string} touche valeur de `KeyboardEvent.key`
  * @returns {boolean}
  */

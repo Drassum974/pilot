@@ -12,8 +12,10 @@
  *  - le delai n'est pas exactement 10 000 ms, ou s'il devient reglable ;
  *  - le repos avec la DICTEE ARMEE MAIS SILENCIEUSE cesse de masquer ;
  *  - une seule des quatre interdictions est retiree, adoucie ou reordonnee ;
- *  - un mouvement ou une frappe cesse de ramener le bas (et de remettre le
- *    decompte a zero) ;
+ *  - un mouvement cesse de ramener le bas (et de remettre le
+ *    decompte a zero), ou une frappe cesse de le PROLONGER sans jamais
+ *    l'allumer (decision du proprietaire du 2026-11-16 : seule la souris
+ *    fait apparaitre la barre) ;
  *  - un second minuteur ou un second point d'ecriture de la classe apparait.
  *
  * La decision reste PURE (`vocal-chrome.js` : aucun DOM, aucune minuterie) : ce
@@ -52,11 +54,18 @@ describe("0. L'ETAT PAR DEFAUT EST MASQUE (demande du proprietaire, 2026-11-14)"
   it("a l'entree du mode, le bas est efface TOUT DE SUITE", () => {
     // « Par defaut, ce bloc ne doit pas s'afficher » : il n'y a pas de decompte
     // a attendre a l'ouverture, et aucun affichage de courtoisie. L'entree ne
-    // pose donc AUCUN minuteur (il n'y a qu'une pose dans tout le fichier :
-    // le reveil par un geste).
+    // pose donc AUCUN minuteur (l'ouverture n'est pas un geste).
     const entree = sliceSource(SUPER, "function enterVocal() {", "vocalSyncSides();", 200);
     expect(entree).not.toMatch(/vocalRestartChromeTimer\(\)/);
-    expect(SUPER.match(/vocalRestartChromeTimer\(\);/g) || []).toHaveLength(1);
+    // DEUX poses, et elles sont TOUTES DEUX des gestes de souris : le reveil
+    // (`vocalWakeChrome`) et sa variante « prolonger seulement »
+    // (`vocalKeepChromeAlive`, reservee aux touches — decision du proprietaire du
+    // 2026-11-16 : la seule cause d'apparition est la souris). Aucune troisieme.
+    const posesDeclarees = (SUPER.match(/vocalRestartChromeTimer\(\);/g) || []).length;
+    expect(posesDeclarees).toBe(2);
+    expect(sliceSource(SUPER, "function vocalKeepChromeAlive()", "\n  }", 20)).toContain(
+      "if (vocalChromeTimer) vocalRestartChromeTimer();",
+    );
     // Le premier rendu est deja efface : la classe est posee AVANT la peinture,
     // dans la meme tache que l'entree du calque dans le document.
     expect(entree).toContain("document.body.appendChild(vocalOverlay)");
@@ -159,7 +168,7 @@ describe("1. LE DELAI — dix secondes sans souris", () => {
     }
   });
 
-  it("un mouvement ou une frappe RAMENE le bas, et remet le decompte a zero", () => {
+  it("un mouvement RAMENE le bas ; une frappe le PROLONGE, elle ne le rallume pas", () => {
     // REGLE PROTEGEE : le reveil. Le gel du minuteur n'existe pas : tout geste
     // relance le delai complet (`vocalRestartChromeTimer` est rappele), et le
     // pointeur redevient un geste recent.
@@ -168,13 +177,18 @@ describe("1. LE DELAI — dix secondes sans souris", () => {
     const reveil = sliceSource(SUPER, "function vocalWakeChrome()", "\n  }", 20);
     expect(reveil).toContain("vocalRestartChromeTimer()");
     expect(reveil).toContain("vocalSyncChrome()");
+    // LA FRAPPE EST UNE PROLONGATION, PAS UN ALLUMAGE (decision du proprietaire du
+    // 2026-11-16) : le minuteur n'est repose que s'il tourne deja.
+    const prolonge = sliceSource(SUPER, "function vocalKeepChromeAlive()", "\n  }", 20);
+    expect(prolonge).toContain("if (vocalChromeTimer) vocalRestartChromeTimer();");
+    expect(prolonge).not.toMatch(/^\s+vocalRestartChromeTimer\(\);/m);
     // Le point d'ecriture de la classe, lui, ne pose JAMAIS le minuteur : sinon un
     // appel venu de nulle part rallumerait le bas indefiniment.
     const sync = sliceSource(SUPER, "function vocalSyncChrome(state)", "\n  }", 80);
     expect(sync).not.toContain("vocalRestartChromeTimer()");
     expect(sync).not.toMatch(/setTimeout/);
-    // Les quatre gestes : pointeur qui bouge de 4 px, clic, molette, clavier — le
-    // geste de pointeur est pose par chacun d'eux.
+    // Les gestes de SOURIS : pointeur qui bouge de 4 px, clic, molette — le geste
+    // de pointeur est pose par chacun d'eux.
     expect(SUPER).toContain("vocalChromeGestePointeur = true");
   });
 });

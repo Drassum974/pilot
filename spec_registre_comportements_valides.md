@@ -71,6 +71,7 @@
 | 30 | L'oreille intégrée Whisper est livrée sur Windows seulement : les fabrications macOS ne la compilent pas, et sa branche Apple est tout de même compilée à part, avant toute publication, avec son journal. | `src/js/oreille-integree-whisper-livraison.test.js` :: AUCUNE cible Apple ne le porte (confinement du 2026-11-16) |
 | 31 | Les deux règles communes à tous les assistants sont écrites à UN seul endroit et réellement lues par eux : le vécu du propriétaire prime sur la documentation, aucun sujet validé ne disparaît faute de date. | `src/js/regles-communes-assistants.test.js` :: toute demande déléguée (brief structuré) porte les deux règles |
 | 32 | Un sujet reporté sans date n'est plus un état valide : l'assistant ne peut plus créer une tâche « à trancher » sans échéance, et le refus nomme le marqueur et la sortie (une date, ou une clôture explicite). | `src/js/regles-communes-assistants.test.js` :: refuse la création d'une tâche reportée sans date (porte visible) |
+| 33 | Dans l'écran Vocal, la barre du bas n'apparaît que sur un geste de souris : seuls trois gestes l'allument dans tout l'écran, et la parole, l'écoute ou un changement d'état ne peuvent pas la déclencher. | `src/js/vocal-barre-surgit-seulement-par-la-souris.test.js` :: les trois gestes de souris allument le bas, et eux seuls |
 
 ## Ce que le garde-fou vérifie
 

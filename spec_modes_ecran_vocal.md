@@ -164,7 +164,8 @@ décrit ici est le **maximum** de ce que l'écran affiche, pas son minimum.
    Elle se peint **après** l'enveloppe de parole et n'a **aucun fond** : elle ne
    recouvre ni la lueur ni la saisie, et rien ne la recouvre.
 4. **La zone de saisie**, en bas, **visible pendant l'action et effacée au repos**
-   (13/11, §4bis : elle revient au geste) et discrète : c'est la barre
+   (13/11, §4bis : elle revient au GESTE DE SOURIS, et a rien d'autre depuis le
+   2026-11-16) et discrète : c'est la barre
    de saisie de l'onglet Assistant, **déplacée** (même nœud, même envoi, même
    dictée 🎙️), 720 px au plus, centrée, 16 px de marge basse, sans filet ni fond
    pleine largeur, plafonnée à **120 px** de haut (au lieu de 200 px dans l'onglet).
@@ -1102,7 +1103,8 @@ le halo ne sort pas du disque, l'enveloppe ne rentre pas dedans.
 ## 4bis. Le bas de l'écran s'efface au repos (13/11)
 
 Décision du propriétaire : **l'écran nu va jusqu'au bout** — au repos, le bas
-disparaît, et il **revient au geste**. Le cercle, lui, ne bouge **pas d'un
+disparaît, et il **revient au geste de souris** (décision du 2026-11-16 : c'est
+la SEULE cause d'apparition). Le cercle, lui, ne bouge **pas d'un
 pixel** : la promesse « le cercle est le centre de l'écran » ne dépend plus de
 la présence du texte.
 
@@ -1128,13 +1130,16 @@ boutons système de la fenêtre.
 
 **Le geste, et la parole** : le bas revient à un mouvement de pointeur de
 **4 px cumulés** au moins (sous ce seuil, le tremblement d'une main posée ne
-réveille rien), à un **appui** de pointeur, à la **molette**, à **n'importe quelle
-touche sauf `Échap`** (qui sort du mode, inchangé), **et quand vous prenez la
-parole** (`vocalBargeIn` appelle le réveil existant : parler ne passe par aucun
-des quatre écouteurs). Un geste sur un bas effacé ne déclenche rien d'autre que
-le réveil : **aucun contrôle invisible n'est activable**.
+réveille rien), à un **appui** de pointeur et à la **molette** — **et à rien
+d'autre** (voir « La souris est la seule cause d'apparition », décision du
+2026-11-16, plus bas : **la parole ne le rallume plus**). Le **clavier**, lui,
+**prolonge** un bas déjà visible (n'importe quelle touche sauf `Échap`, qui
+sort du mode, inchangé) mais ne l'allume **jamais** : c'est exactement la
+formule « inactif = ni mouvement de souris ni frappe ». Un geste sur un bas
+effacé ne déclenche rien d'autre que le réveil : **aucun contrôle invisible
+n'est activable**.
 
-**Le remasquage** : **10 000 ms** sans aucun geste (décision du propriétaire, 2026-11-14 :
+**Le remasquage** : **10 000 ms** sans **mouvement de souris ni frappe** (décision du propriétaire, 2026-11-14 :
 « la zone de saisie doit disparaitre apres 10 secondes sans souris » ; c'était 2 500 ms),
 **un seul minuteur**, relancé à zéro à chaque geste — pendant ces 10 s le bas est visible,
 même si l'on ne fait rien — et **posé par le seul geste** (jamais à l'entrée du mode).
@@ -1145,13 +1150,35 @@ la spec** :
 | # | Situation | Pourquoi |
 |---|---|---|
 | 1 | un **message du micro fermé** est affiché | une panne reste lisible, et son bouton « Autoriser le micro » cliquable |
-| 2 | le **champ contient du texte** | on ne cache jamais ce que l'on écrit, ni une dictée en cours de transcription. Un champ **vide** ne retient **rien**, même avec le curseur dedans : le focus n'est pas du texte |
+| 2 | le **champ contient du texte SAISI** par l'utilisateur | on ne cache jamais ce que l'on écrit. Un champ **vide** ne retient **rien**, même avec le curseur dedans (le focus n'est pas du texte), et un texte écrit par la **dictée** ne retient **rien** non plus (décision du 2026-11-16 : la parole ne fait jamais apparaître la barre) |
 | 3 | le pointeur vient de **bouger** (4 px cumulés) ou de **cliquer** sur la zone du bas, **pendant le décompte** | on ne fait pas disparaître sous le curseur ce qu'il désigne — mais un pointeur **posé** sur la bande du bas (toute la largeur de l'écran) ne retient **rien** : sans cela le bas ne s'effaçait plus jamais, et c'était le défaut du 2026-10-03 |
 | 4 | **une question de l'assistant attend une réponse** | la rangée de boutons qui la porte vit dans le bas : l'effacer rendrait la question invisible et bloquerait le travail sans un mot |
 
 **Ni la parole de Pilot, ni celle de l'utilisateur, ni l'écoute du micro ne
 figurent dans ce tableau** : ce n'est pas un oubli (voir le correctif du
 2026-11-13 ci-dessous).
+
+**La souris est la seule cause d'apparition (décision du 2026-11-16).** Défaut
+constaté par le propriétaire : « la barre apparaît dès qu'il parle ». Trois
+chemins la rallumaient, **tous supprimés** :
+
+| Chemin | Ce qu'il faisait | État |
+|---|---|---|
+| `rec.onresult` (transcription) | appelait le réveil dès qu'un texte arrivait dans le champ | **supprimé** — le chemin ne fait plus que rejouer la décision (`vocalSyncChrome()`), sans reposer les 10 s |
+| `vocalBargeIn` (voix par-dessus la lecture) | appelait le réveil quand l'utilisateur prenait la parole | **supprimé** — `applyVocalState()` rejoue la décision, l'écran reste nu |
+| règle 2 « champ rempli » | comptait le texte écrit par la **dictée** | **corrigé** — le champ est marqué « dicté » (`vocalChampDicte`), posé par le seul écrivain du moteur, retiré par la frappe de l'utilisateur |
+
+Il ne reste donc **que trois appels** au réveil dans tout le fichier, et ce sont
+les **trois gestes de souris** (mouvement de 4 px, appui, molette). La **frappe**
+ne peut pas allumer la barre : l'écouteur du champ et celui du clavier passent par
+`vocalKeepChromeAlive`, qui ne repose le minuteur **que s'il tourne déjà** — un
+texte saisi continue donc de retenir le bas par la règle 2, comme avant, mais
+**aucune touche ne peut faire apparaître un bas effacé**. Le contrôle est tenu
+par `src/js/vocal-barre-surgit-seulement-par-la-souris.test.js` (12 tests), qui
+échoue si un `vocalWakeChrome()` s'ajoute ailleurs que dans les trois gestes, si
+un chemin de parole rallume la barre, si une touche l'allume ou si le texte dicté
+compte comme un champ rempli. Rapport :
+`docs/rapports/RAPPORT-vocal-barre-saisie.md`.
 
 **Une question de l'assistant est visible et répondable dans cet écran
 (correctif).** Les questions de l'assistant — choix, choix multiple,
@@ -1232,25 +1259,30 @@ déjà verrouillés. Concrètement : la règle 3 est **supprimée** (le tableau 
 cinq à quatre lignes, les suivantes sont renumérotées), la fonction intermédiaire
 `vocalEtatQuiRetientLeBas` **disparaît** (elle n'existait que pour cette règle),
 `vocalSyncChrome` **ne transmet plus aucun état** à la décision, et le fait `saisie`
-vaut désormais « le champ **contient du texte** ». La parole **fait revenir** le bas
-au lieu de le retenir : `vocalBargeIn` (prise de parole détectée par la garde du
-micro) appelle le réveil **existant** — aucun second minuteur, aucun nouvel
-écouteur. Le mécanisme lui-même est intact : même minuteur unique, même point
-d'écriture, mêmes 4 px, mêmes quatre gestes (la seule chose qui ait changé depuis est le
+vaut désormais « le champ **contient du texte** ». La parole ne **retient** plus le bas
+(elle ne le **réveillait** que par `vocalBargeIn` — cette partie de la décision du
+2026-11-13 est **annulée** le 2026-11-16 : la parole ne réveille plus rien, voir
+« La souris est la seule cause d'apparition » ci-dessus). Le mécanisme lui-même
+est intact : même minuteur unique, même point
+d'écriture, mêmes 4 px, mêmes écouteurs (la seule chose qui ait changé depuis est le
 DÉLAI, passé à 10 000 ms le 2026-11-14 sur décision du propriétaire, dans la même
-constante unique `VOCAL_CHROME_IDLE_MS`). Verrous :
+constante unique `VOCAL_CHROME_IDLE_MS`, puis la règle d'allumage du 2026-11-16).
+Verrous :
 `src/js/vocal-barre-effacee-pendant-la-parole.test.js` (la barre s'efface pendant
 que Pilot parle, pendant que l'on parle et pendant que le micro écoute ; le champ
-rempli et le pointeur la retiennent encore ; la parole la réveille) et
+rempli et le pointeur la retiennent encore ; **la parole ne la réveille plus**, et
+le texte dicté ne compte pas comme un champ rempli) et
 `src/js/vocal-barre-s-efface-au-repos.test.js` (aucun état dans la décision).
 
 **Cas particulier, voulu** : au repos avec la dictée **armée mais encore
 silencieuse** — le cas normal de cet écran — le champ est vide et l'état est
 « repos », donc le bas **s'efface**. La dictée armée n'est pas une dictée *en
-cours* ; le **premier mot** entendu remplit le champ (le bas revient) et la
-transcription en cours le retient. Une **panne de micro** et une **transcription
-en cours** ne laissent **jamais** le bas s'effacer ; une **lecture à voix haute**,
-elle, ne le retient plus (mais parler par-dessus la lecture le réveille).
+cours* ; le **premier mot** entendu remplit le champ **sans faire revenir le
+bas** (un texte dicté n'est pas un texte saisi : décision du 2026-11-16) et la
+transcription en cours ne le retient **pas** non plus. Une **panne de micro** et
+une **question en attente** ne laissent **jamais** le bas s'effacer ; une
+**lecture à voix haute** ne le retient pas, et parler par-dessus la lecture ne
+le réveille plus.
 
 **Correctif du 2026-11-15 — un résultat de dictée VIDE ne réveille plus le bas.**
 Troisième cause du même symptôme (« la barre du bas ne s'efface plus »), et elle
@@ -1260,9 +1292,11 @@ d'écriture du texte dicté (`rec.onresult`) appelait `vocalWakeChrome()` à
 reconnaissance émet des résultats **vides** en continu — micro armé, pièce
 silencieuse — et l'écran arme justement la dictée **au repos** : le décompte des
 10 000 ms était donc remis à zéro avant son terme, à répétition, et le bas ne
-s'effaçait **jamais**. Le réveil est désormais réservé au **texte réel** :
-`if (transcript.trim()) vocalWakeChrome(); else vocalSyncChrome();`. Un résultat
-vide ne fait que **rejouer la décision** (le champ a pu changer) ; il ne touche
+s'effaçait **jamais**. Le réveil a alors été réservé au **texte réel**
+(`if (transcript.trim()) vocalWakeChrome(); else vocalSyncChrome();`) — **cette
+moitié-là est elle aussi annulée le 2026-11-16 : plus aucun résultat, vide ou
+parlé, ne réveille le bas** (voir le correctif daté plus bas). Un résultat
+ne fait que **rejouer la décision** (le champ a pu changer) ; il ne touche
 pas au minuteur, puisque `vocalSyncChrome` n'en pose aucun. Un **seul** appel au
 réveil subsiste dans toute la session de dictée (vérifié). Verrou :
 `src/js/vocal-resultat-vide-ne-reveille-pas-le-bas.test.js`.
@@ -1305,6 +1339,28 @@ inchangés ; après une phrase, le bas redevient effaçable, et sans le correcti
 il resterait visible à chaque échéance). Rapport :
 `docs/rapports/RAPPORT-barre-du-bas-apres-la-prise-de-parole.md`.
 
+**Correctif du 2026-11-16 — la SAISIE (la barre du bas) n'apparaît plus que sur
+un geste de souris.** Le propriétaire a tranché : *« la barre apparaît dès qu'il
+parle ; le mouvement de souris doit être la seule cause d'apparition. »* Trois
+chemins la rallumaient, **tous supprimés** : `rec.onresult` appelait le réveil
+dès qu'un texte arrivait (correction du 2026-11-15 ci-dessus : elle avait gardé
+la moitié fautive, le texte **réel**), `vocalBargeIn` l'appelait quand on prenait
+la parole par-dessus la lecture, et la règle 2 comptait le texte écrit par la
+**dictée** comme un champ rempli. Le module de décision **ne change pas de
+forme** (mêmes quatre règles, mêmes faits, aucun état de conversation) : c'est le
+**branchement** qui change. Il ne reste que **trois** appels au réveil dans tout
+`super-agent.js`, les trois gestes de souris (mouvement de 4 px, appui,
+molette) ; le clavier et l'écouteur `input` du champ passent par
+`vocalKeepChromeAlive`, qui ne repose le minuteur **que s'il tourne déjà** — une
+touche **prolonge** un bas visible, elle ne l'**allume** jamais (c'est la formule
+« inactif = ni souris ni frappe »). Le texte dicté est marqué (`vocalChampDicte`,
+posé par le seul écrivain du moteur, retiré par la frappe) : il ne retient plus
+le bas. Verrou : `src/js/vocal-barre-surgit-seulement-par-la-souris.test.js`
+(12 tests ; il échoue si un appel au réveil s'ajoute ailleurs que dans les trois
+gestes, si un chemin de parole rallume la barre, si une touche l'allume ou si le
+texte dicté retient le bas). Rapport :
+`docs/rapports/RAPPORT-vocal-barre-saisie.md`.
+
 **Le fondu** : **180 ms** (le `var(--transition)` du projet), opacité 1 → 0,
 `translateY(0)` → `translateY(8px)` (le bas s'enfonce vers le bas),
 `visibility: hidden` **à la fin** du fondu et `visible` **immédiatement** au
@@ -1315,7 +1371,8 @@ translation : `transition: none`.
 
 **Où la décision vit** : un module **pur** `src/js/vocal-chrome.js` (aucun DOM,
 aucune minuterie) — `VOCAL_CHROME_IDLE_MS` (10 000), `VOCAL_CHROME_MOVE_PX` (4),
-`vocalChromeVisible({ etat, saisie, micFerme, pointeurActif, pointeurGeste, question })`,
+`vocalChromeVisible({ saisie, micFerme, pointeurActif, pointeurGeste, question })`
+(le fait `etat` n'existe plus : aucun état de conversation n'entre dans la décision),
 `vocalChromeClass(visible)`, `vocalChromeWakeKey(touche)` et
 `vocalChromeMoved(courant, repere)`. Les **deux** faits de pointeur sont distincts et
 viennent du même module : `pointeurActif` (position, calculée) et `pointeurGeste`
