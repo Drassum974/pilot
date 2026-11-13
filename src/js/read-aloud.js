@@ -125,7 +125,6 @@ import {
 // poids sont là, découpe le texte, demande le son à la machine et journalise un
 // repli. Le réglage unique et l'état de lecture restent ICI.
 import {
-  groupSentencesForPocket,
   isPocketVoiceChoice,
   logPocket,
   pocketVoiceChoices,
