@@ -633,6 +633,50 @@ fn agent_lifespan_rule_prompt() -> String {
     }
 }
 
+/// SOURCE UNIQUE des DEUX RÈGLES COMMUNES à TOUS les assistants de Pilot
+/// (décision du propriétaire, 13/11/2026) : le module pur
+/// `src/js/regles-communes-assistants.js`, embarqué ici ENTIER. Le même fichier
+/// est importé par `structured-brief.js` (donc par toute demande déléguée), par
+/// l'extension `pilot-context.ts` (prompt système de l'agent principal du
+/// projet) et par `pilot-assistant-tools.ts` (porte de la règle 2). Il est écrit
+/// sur disque par `AgentService::write_regles_communes` : les deux règles
+/// n'existent qu'à UN seul endroit du dépôt, jamais recopiées.
+const REGLES_COMMUNES_SOURCE: &str =
+    include_str!("../../src/js/regles-communes-assistants.js");
+
+/// Délimiteurs du CONTRAT avec le module JS : la déclaration de la constante
+/// `REGLES_COMMUNES_ASSISTANTS` ouvrant un gabarit de chaîne, et la fermeture de
+/// ce gabarit. Le texte des règles ne contient ni accent grave ni `$` suivi
+/// d'une accolade, donc le premier « `; » rencontré après le début est bien la
+/// fin du bloc.
+const REGLES_COMMUNES_OPEN: &str = "export const REGLES_COMMUNES_ASSISTANTS = `";
+const REGLES_COMMUNES_CLOSE: &str = "`;";
+
+/// Extrait le bloc des deux règles de la SOURCE UNIQUE. Fonction PURE (aucune
+/// I/O) : un délimiteur absent rend `None` (les tests le refusent bruyamment)
+/// plutôt que d'injecter deux règles vides sans le dire.
+fn extract_regles_communes(src: &str) -> Option<String> {
+    let start = src.find(REGLES_COMMUNES_OPEN)? + REGLES_COMMUNES_OPEN.len();
+    let rest = &src[start..];
+    let end = rest.find(REGLES_COMMUNES_CLOSE)?;
+    let block = rest[..end].trim();
+    if block.is_empty() {
+        None
+    } else {
+        Some(block.to_string())
+    }
+}
+
+/// Bloc injecté dans le prompt système de l'Assistant : les DEUX règles
+/// communes, telles quelles (le titre est dans la source unique, rien n'est
+/// réécrit ici).
+fn regles_communes_assistants_prompt() -> String {
+    match extract_regles_communes(REGLES_COMMUNES_SOURCE) {
+        Some(block) => format!("\n\n{block}"),
+        None => String::new(),
+    }
+}
+
 /// Bloc d'instructions injecté dans le prompt système de l'assistant : règles
 /// de résilience / anti-blocage ET anti-boucle de `run_agents` (fusionnées : une
 /// seule formulation par règle). L'assistant construit des demandes structurées,
@@ -688,11 +732,11 @@ const SUPER_AGENT_ROLE_TEMPLATE: &str = "Tu es « {} », l'assistant de suivi mu
 /// système de l'assistant (rôle, règles figées et voix permanente), injectés à
 /// chaque message indépendamment des données et des toggles. Fixé au total
 /// mesuré après nettoyage, majoré de 5 % (arrondi au multiple de 50 supérieur).
-/// Dernière valeur mesurée : 5 839 caractères (les deux règles de conduite des
-/// questions de mode d'emploi ont été réintroduites dans un bloc de 307
-/// caractères ; le bloc « documentation lisible sur disque » reste retiré),
-/// majorée de 5 % et arrondie au multiple de 50 supérieur → 6 150.
-const SUPER_AGENT_FIXED_PROMPT_BUDGET: usize = 6150;
+/// Dernière valeur mesurée : 7 262 caractères (les DEUX RÈGLES COMMUNES DE PILOT
+/// — vécu du propriétaire > documentation, aucun sujet validé sans date — sont
+/// injectées en 1 315 caractères ; elles priment sur toute autre consigne),
+/// majorée de 5 % et arrondie au multiple de 50 supérieur → 7 650.
+const SUPER_AGENT_FIXED_PROMPT_BUDGET: usize = 7650;
 
 #[tauri::command]
 pub async fn start_super_agent_session(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
@@ -868,6 +912,11 @@ fn assemble_super_agent_system_prompt(blocks: &SuperAgentPromptBlocks) -> String
     full_system.push_str(SUPER_AGENT_AGENTSMD_PROMPT);
     full_system.push_str(SUPER_AGENT_NO_WAIT_PROMPT);
     full_system.push_str(SUPER_AGENT_HOWTO_PROMPT);
+    // Les DEUX RÈGLES COMMUNES DE PILOT : juste après les règles de conduite des
+    // questions, avant le prompt personnalisé (une règle du propriétaire prime
+    // sur une personnalisation). Texte extrait de la source unique
+    // `src/js/regles-communes-assistants.js`.
+    full_system.push_str(&regles_communes_assistants_prompt());
     if !blocks.custom_prompt.trim().is_empty() {
         full_system.push_str("\n\n");
         full_system.push_str(blocks.custom_prompt.trim());
@@ -9832,6 +9881,7 @@ mod tests {
             + super::SUPER_AGENT_AGENTSMD_PROMPT.chars().count()
             + super::SUPER_AGENT_NO_WAIT_PROMPT.chars().count()
             + super::SUPER_AGENT_HOWTO_PROMPT.chars().count()
+            + super::regles_communes_assistants_prompt().chars().count()
             + super::SUPER_AGENT_SCHEDULE_PROMPT.chars().count()
             + super::voice_guideline().chars().count();
         let fixed_parts: Vec<(&str, usize)> = vec![
@@ -9852,6 +9902,10 @@ mod tests {
             (
                 "MODE D'EMPLOI",
                 super::SUPER_AGENT_HOWTO_PROMPT.chars().count(),
+            ),
+            (
+                "REGLES COMMUNES (vecu > doc, pas de sujet sans date)",
+                super::regles_communes_assistants_prompt().chars().count(),
             ),
             ("SCHEDULE", super::SUPER_AGENT_SCHEDULE_PROMPT.chars().count()),
             ("VOICE", super::voice_guideline().chars().count()),
@@ -9955,13 +10009,14 @@ mod tests {
         // être exactement leur concaténation (toute insertion silencieuse, dont
         // un bloc de doc, fait échouer ce test).
         let expected = format!(
-            "{}{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}{}{}",
             super::SUPER_AGENT_TOOLS_PROMPT,
             super::agent_lifespan_rule_prompt(),
             super::SUPER_AGENT_RESILIENCE_PROMPT,
             super::SUPER_AGENT_AGENTSMD_PROMPT,
             super::SUPER_AGENT_NO_WAIT_PROMPT,
             super::SUPER_AGENT_HOWTO_PROMPT,
+            super::regles_communes_assistants_prompt(),
             super::SUPER_AGENT_SCHEDULE_PROMPT,
             super::voice_guideline(),
         );
@@ -10182,6 +10237,7 @@ Identité de genre : au féminin.");
             + super::SUPER_AGENT_AGENTSMD_PROMPT.chars().count()
             + super::SUPER_AGENT_NO_WAIT_PROMPT.chars().count()
             + super::SUPER_AGENT_HOWTO_PROMPT.chars().count()
+            + super::regles_communes_assistants_prompt().chars().count()
             + super::SUPER_AGENT_SCHEDULE_PROMPT.chars().count()
             + super::voice_guideline().chars().count();
         let budget = super::SUPER_AGENT_FIXED_PROMPT_BUDGET;
@@ -10361,6 +10417,80 @@ Identité de genre : au féminin.");
         );
         assert_eq!(
             super::extract_agent_lifespan_rule("export const AGENT_LIFESPAN_RULE = `texte`;"),
+            Some("texte".to_string())
+        );
+    }
+
+    /// VERROU (décision du propriétaire du 13/11/2026) : les DEUX RÈGLES COMMUNES
+    /// DES ASSISTANTS — le vécu du propriétaire prime sur la documentation, aucun
+    /// sujet validé ne disparaît faute de date — sont écrites dans la SOURCE
+    /// UNIQUE `src/js/regles-communes-assistants.js`, lisibles telles quelles, et
+    /// réellement injectées dans le prompt système de l'Assistant. Ce test ÉCHOUE
+    /// si l'une des deux règles disparaît de la source lue par les assistants.
+    #[test]
+    fn les_regles_communes_sont_injectees_dans_le_prompt() {
+        // 1. La source unique porte les deux règles en clair.
+        let rule = super::extract_regles_communes(super::REGLES_COMMUNES_SOURCE)
+            .expect("le bloc doit etre extractible de src/js/regles-communes-assistants.js");
+        for attendu in [
+            "Règle 1",
+            "prime toujours sur la documentation",
+            "essai réel",
+            "Règle 2",
+            "ne disparaît faute de date",
+            "porteur nommé",
+            "à trancher",
+            "CLÔTURE explicite",
+        ] {
+            assert!(
+                rule.contains(attendu),
+                "la source unique doit dire « {attendu} » : {rule}"
+            );
+        }
+        // 2. Le texte injecté EST celui de la source unique (aucune divergence).
+        let injected = super::regles_communes_assistants_prompt();
+        assert!(
+            injected.contains(&rule),
+            "le bloc injecte doit contenir les deux regles de la source unique"
+        );
+        assert!(
+            injected.contains("Règles communes des assistants de Pilot"),
+            "le bloc injecte doit etre annonce par son titre"
+        );
+        // 3. Présent dans le prompt assemblé, quel que soit le mode.
+        for coordinator in [false, true] {
+            let blocks = super::SuperAgentPromptBlocks {
+                role: "role",
+                identity: "",
+                project_context: "",
+                known_projects: "",
+                available_agents: "",
+                custom_prompt: "",
+                user_memory: "",
+                session_memory: "",
+                concise: false,
+                coordinator,
+                user_friendly: false,
+                adaptive_personality: false,
+                personality: "",
+            };
+            let full = super::assemble_super_agent_system_prompt(&blocks);
+            assert!(
+                full.contains(&rule),
+                "les deux regles communes doivent etre dans le prompt systeme (coordinator={coordinator})"
+            );
+        }
+        // 4. Extraction fermée : aucun délimiteur ⇒ rien n'est inventé.
+        assert_eq!(super::extract_regles_communes("export const AUTRE = 1;"), None);
+        assert_eq!(
+            super::extract_regles_communes("export const REGLES_COMMUNES_ASSISTANTS = `  `;"),
+            None,
+            "un bloc vide ne doit pas passer pour les deux regles"
+        );
+        assert_eq!(
+            super::extract_regles_communes(
+                "export const REGLES_COMMUNES_ASSISTANTS = `texte`;"
+            ),
             Some("texte".to_string())
         );
     }

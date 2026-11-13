@@ -246,6 +246,12 @@ import {
 // (`pendingQuestionChromeSync`) : aucun second point d'écriture, aucun
 // minuteur, aucun second affichage.
 import { planVocalQuestionFocus } from "./vocal-question-utilisable.js";
+// RÈGLES COMMUNES DE PILOT (décision du propriétaire du 13/11/2026, source
+// unique `regles-communes-assistants.js`) : le CONTRÔLE de leurs deux cas est
+// appliqué ici, à la fin du texte de l'assistant — une réserve de documentation
+// brandie contre un fait constaté, un sujet repoussé sans date. Ce n'est pas un
+// paragraphe de consignes de plus : le cas est SIGNALÉ à l'écran.
+import { showReglesCommunesNotice } from "./regles-communes-signal.js";
 // LE BOUTON DE RELANCE DE L'ECOUTE (« Réveiller <Nom> », decisions 401 / 402) :
 // les DEUX decisions (se voit-il ? que dit-il ?) sont PURES et vivent dans ce
 // module. Ici, on ne fait que les appliquer (`vocalSyncRestartButton`,
@@ -10051,6 +10057,11 @@ function handleSuperAgentEvent(payload, messagesEl, statusEl, state, onEnd) {
       if (currentTextSection && pendingText) {
         currentTextSection.innerHTML = md.render(pendingText);
       }
+      // RÈGLES COMMUNES DE PILOT : au moment où la réponse est écrite, on SIGNALE
+      // les deux cas fautifs (réserve de documentation opposée au vécu du
+      // propriétaire, sujet reporté sans date). Décision pure dans la source
+      // unique ; ici, un seul affichage et rien d'autre.
+      showReglesCommunesNotice(currentTextSection, pendingText);
       if (currentTextSection) currentTextSection.dataset.closed = "true";
       pendingText = "";
     } else if (delta.type === "thinking_start") {

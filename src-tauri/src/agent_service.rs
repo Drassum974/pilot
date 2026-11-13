@@ -3264,6 +3264,12 @@ impl AgentService {
         if let Err(e) = Self::write_agent_lifespan_rule(&dir) {
             report.failures.push(e);
         }
+        // Règles communes des assistants (source unique), importées par
+        // `pilot-assistant-tools.ts` : sans ce module, l'extension des outils de
+        // suivi ne se charge plus (la porte de la règle 2 y vit).
+        if let Err(e) = Self::write_regles_communes(&dir) {
+            report.failures.push(e);
+        }
         // Service Laya : l'outil `laya_classify` doit aussi être disponible pour
         // les agents d'assistant (tâche #140), qui tournent dans
         // `~/.pilot/assistant/` et non dans un projet.
@@ -3536,6 +3542,11 @@ impl AgentService {
                         if let Err(e) = Self::write_agent_lifespan_rule(&dir) {
                             report.failures.push(e);
                         }
+                        // Règles communes des assistants (source unique) :
+                        // importées par `pilot-assistant-tools.ts`.
+                        if let Err(e) = Self::write_regles_communes(&dir) {
+                            report.failures.push(e);
+                        }
                         // Service Laya : l'outil `laya_classify` doit être disponible
                         // pour la session de l'assistant comme pour tout autre agent.
                         match Self::write_laya_extension(&dir) {
@@ -3670,7 +3681,8 @@ impl AgentService {
                     ];
                     // #21 : quand l'assistant active l'héritage de contexte, les
                     // agents spécifiques chargent aussi pilot-context.ts (comme
-                    // l'agent standard) pour hériter du contexte projet.
+                    // l'agent standard) pour hériter du contexte projet, et le
+                    // module des règles communes qu'il importe.
                     if inherit_context {
                         files.push(("pilot-context.ts", include_str!("../extensions/pilot-context.ts")));
                     }
@@ -3701,6 +3713,15 @@ impl AgentService {
                     match Self::write_pdf_extension(&dir) {
                         Ok(pdf_file) => report.paths.push(pdf_file),
                         Err(e) => report.failures.push(e),
+                    }
+                    // Règles communes des assistants (source unique) : le module
+                    // est importé par `pilot-context.ts`, donc écrit dès qu'il est
+                    // chargé. Sans lui, l'extension de contexte ne se charge plus
+                    // (elle importe `./regles-communes-assistants.js`).
+                    if inherit_context {
+                        if let Err(e) = Self::write_regles_communes(&dir) {
+                            report.failures.push(e);
+                        }
                     }
                     Self::log_extension_failures("agent multi-rôles", &report);
                     extensions = report.paths;
@@ -3854,6 +3875,23 @@ impl AgentService {
         .map_err(|e| format!("agent-lifespan-rule.js : {}", e))
     }
 
+    /// Écrit le module PARTAGÉ `regles-communes-assistants.js` (SOURCE UNIQUE des
+    /// DEUX règles communes à TOUS les assistants de Pilot, décision du
+    /// propriétaire du 13/11/2026) à côté des extensions. Il est importé par
+    /// `pilot-context.ts` (prompt système de l'agent principal) et par
+    /// `pilot-assistant-tools.ts` (porte de la règle 2 à la création d'une
+    /// tâche). Le MÊME fichier est embarqué par `super_agent.rs` (prompt de
+    /// l'Assistant) et par `structured-brief.js` (demandes déléguées) : les deux
+    /// règles n'existent qu'à un seul endroit du dépôt, jamais recopiées.
+    fn write_regles_communes(dir: &std::path::Path) -> Result<(), String> {
+        crate::extension_write::write_embedded(
+            &dir.join("regles-communes-assistants.js"),
+            include_str!("../../src/js/regles-communes-assistants.js"),
+        )
+        .map(|_| ())
+        .map_err(|e| format!("regles-communes-assistants.js : {}", e))
+    }
+
     fn spawn_session(app: &AppHandle, project: &str, agent_id: &str) -> Result<rpc_manager::RpcSession, String> {
         let state = app.state::<AppState>();
         let (pi_path, no_session, session_dir, qg_enabled, confirm_file_edits, mcp_enabled) = {
@@ -3958,6 +3996,13 @@ impl AgentService {
                     match Self::write_pdf_extension(&dir) {
                         Ok(pdf_file) => report.paths.push(pdf_file),
                         Err(e) => report.failures.push(e),
+                    }
+                    // Règles communes des assistants (source unique) : importées
+                    // par `pilot-context.ts`, TOUJOURS chargé dans cette session.
+                    // L'agent principal du projet reçoit donc les deux règles dans
+                    // son prompt système à chaque tour.
+                    if let Err(e) = Self::write_regles_communes(&dir) {
+                        report.failures.push(e);
                     }
                     Self::log_extension_failures("session d'agent", &report);
                     extensions = report.paths;
@@ -7284,6 +7329,35 @@ mod tests {
         assert!(
             ecrit.contains("AGENT_LIFESPAN_RULE_GUIDELINE"),
             "la consigne d'outil doit rester disponible pour l'extension"
+        );
+    }
+
+    /// Les DEUX RÈGLES COMMUNES DES ASSISTANTS (décision du propriétaire du
+    /// 13/11/2026) sont écrites à côté des extensions, à l'IDENTIQUE de la source
+    /// unique : sans ce module, `pilot-context.ts` et `pilot-assistant-tools.ts`
+    /// ne se chargent plus (ils l'importent).
+    #[test]
+    fn write_regles_communes_ecrit_la_source_unique() {
+        let dir = crate::test_util::TempDir::new("pilot-regles-communes");
+        AgentService::write_regles_communes(&dir).expect("module des regles ecrit");
+        let ecrit = std::fs::read_to_string(dir.join("regles-communes-assistants.js"))
+            .expect("module lisible");
+        assert_eq!(
+            ecrit,
+            include_str!("../../src/js/regles-communes-assistants.js"),
+            "le module ecrit doit etre la source unique, a l'identique"
+        );
+        assert!(
+            ecrit.contains("export const REGLES_COMMUNES_ASSISTANTS = `"),
+            "le bloc doit rester extractible par le prompt systeme"
+        );
+        assert!(
+            ecrit.contains("reglesCommunesAssistantsBlock"),
+            "le bloc doit rester importable par les extensions"
+        );
+        assert!(
+            ecrit.contains("auditUndatedDeferral"),
+            "la porte de la regle 2 doit rester disponible"
         );
     }
 

@@ -17,6 +17,14 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+// RÈGLE 2 des assistants de Pilot (source unique, jamais recopiée) : un sujet
+// validé mais non lancé devient une tâche DATÉE — soit une date, soit une
+// clôture explicite. La porte ci-dessous la rend VISIBLE : sans échéance, un
+// titre « à trancher / plus tard / à voir » est refusé au lieu d'être enregistré
+// puis oublié (c'est exactement la faute du 13/11/2026 : l'étude PocketTTS
+// validée le 02/11 est restée 11 jours dans un statut sans date).
+// @ts-ignore — module ES pur, partagé tel quel avec Vitest et Rust.
+import { auditUndatedDeferral } from "./regles-communes-assistants.js";
 
 // Sentinel commun préfixant le titre d'un `input` d'outil. Pilot le détecte dans
 // le `input` reçu, parse le nom d'outil et le payload JSON, exécute la commande
@@ -42,6 +50,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "create_task: créer une tâche de suivi dans un projet",
     promptGuidelines: [
       "Use create_task to record a task to track for a project. Provide the absolute project path and a title. Optionally add a description, a deadline (ISO date), and dependsOnTaskId to make this task wait until another task is finished (wait for task X).",
+      "RULE (Pilot, 2026-11-13): a validated subject that is not started must become a DATED task — always pass a deadline (ISO date) and name an owner in the description. A deferral wording without a deadline ('à trancher', 'plus tard', 'à voir') is REFUSED: either a date, or an explicit closure (clos, abandonné, écarté, refusé, annulé).",
     ],
     parameters: Type.Object({
       projectPath: Type.String({ description: "Chemin absolu du projet" }),
@@ -54,6 +63,17 @@ export default function (pi: ExtensionAPI) {
     }),
     executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // PORTE DE LA RÈGLE 2 (contrôle visible, pas seulement une consigne) : un
+      // report sans date est refusé AVANT toute écriture, avec la marche à
+      // suivre. Rien n'est créé en base : le modèle corrige et rappelle l'outil.
+      const porte = auditUndatedDeferral({
+        title: (params as { title?: string }).title,
+        description: (params as { description?: string }).description,
+        deadline: (params as { deadline?: string }).deadline,
+      });
+      if (porte.refuse) {
+        return { content: [{ type: "text", text: porte.phrase }] };
+      }
       const result = await ctx.ui.input(TOOLS_SENTINEL + "create_task::" + JSON.stringify(params), "", PILOT_UI_OPTS);
       if (result == null) {
         return { content: [{ type: "text", text: "Requête annulée. Aucune réponse de Pilot (délai de 2 min dépassé ou annulation) : l'appel a été interrompu pour ne pas bloquer la session." }] };

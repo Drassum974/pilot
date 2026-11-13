@@ -21,10 +21,20 @@
 // of what it was doing once the history is cut. Same mechanism as the handoff
 // (system prompt only, deleted on session boundaries, dated freshness warning in
 // the content itself).
+//
+// It ALSO appends the TWO COMMON RULES OF PILOT (owner's ruling, 2026-11-13):
+// "the owner's lived experience always beats the documentation" and "no
+// validated subject disappears for lack of a date". The text is NOT written
+// here: it comes from the single source `regles-communes-assistants.js`, written
+// next to this file by `AgentService::write_regles_communes` and embedded by
+// `super_agent.rs` (Assistant prompt) and `structured-brief.js` (delegated
+// briefs). Every agent of every project therefore reads the same two rules.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// @ts-ignore — plain ES module source, shared as-is with Vitest and Rust.
+import { reglesCommunesAssistantsBlock } from "./regles-communes-assistants.js";
 
 const HANDOFF_FILE = join(".pilot", "context-inject.md");
 const WORK_STATE_FILE = join(".pilot", "work-state.md");
@@ -42,7 +52,14 @@ function readInjectable(cwd: string, relPath: string): string {
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", (event, ctx) => {
     try {
+      // The two common rules come FIRST: they outrank any project instruction.
+      // Fail-open: an unreadable shared module must never break the prompt.
+      let rules = "";
+      try {
+        rules = reglesCommunesAssistantsBlock() || "";
+      } catch { /* ignore — the rest of the prompt still applies */ }
       const parts = [
+        rules,
         readInjectable(ctx.cwd, HANDOFF_FILE),
         readInjectable(ctx.cwd, WORK_STATE_FILE),
       ].filter(Boolean);

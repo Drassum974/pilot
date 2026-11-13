@@ -4695,6 +4695,22 @@ body.zen-mode #project-footer {
   margin-top: 4px;
 }
 
+/* Signalement des DEUX RÈGLES COMMUNES DE PILOT (décision du propriétaire du
+   13/11/2026) : il apparaît sous la réponse d'un assistant quand elle oppose
+   une limite de documentation à un fait constaté par le propriétaire, ou
+   qu'elle repousse un sujet sans date. Écrit par l'écrivain UNIQUE
+   `regles-communes-signal.js` ; aucune autre feuille ne le dessine. */
+.super-rules-notice {
+  margin: 6px 4px 2px;
+  padding: 5px 8px;
+  border-left: 3px solid var(--warning, #d99a2b);
+  border-radius: 4px;
+  background: rgba(217, 154, 43, 0.1);
+  font-size: 0.85em;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .agent-text-section h1,
 .agent-text-section h2,
 .agent-text-section h3 {

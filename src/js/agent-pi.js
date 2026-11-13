@@ -75,6 +75,11 @@ import { getTabsManager } from "./tabs.js";
 // 2026-10-26) : la décision « faut-il envoyer ? » vit dans un seul module pur
 // (voice-auto-send.js). L'envoi lui-même reste le chemin existant (`sendPrompt`).
 import { applyVoiceEnd } from "./voice-auto-send.js";
+// RÈGLES COMMUNES DE PILOT (décision du propriétaire du 13/11/2026, source
+// unique `regles-communes-assistants.js`) : le signalement des deux cas fautifs
+// (réserve de documentation opposée au vécu du propriétaire, sujet reporté sans
+// date) est écrit par l'ÉCRIVAIN UNIQUE partagé avec l'assistant de suivi.
+import { showReglesCommunesNotice } from "./regles-communes-signal.js";
 
 // Tâche #140 : espace réservé des agents d'assistant (aucun projet rattaché),
 // identique à la constante Rust `agent_service::ASSISTANT_SPACE`. Ces agents
@@ -7293,6 +7298,9 @@ async function handleRpcEvent(payload, messagesEl, state, statusEl, parsePlanFn,
               }
               updateStats();
             }
+            // RÈGLES COMMUNES DE PILOT : la réponse est écrite, on signale les deux
+            // cas fautifs s'il y en a — rien n'est ajouté sinon (décision pure).
+            showReglesCommunesNotice(state.currentTextBlock, state.pendingText);
           }
           state.pendingText = "";
           break;

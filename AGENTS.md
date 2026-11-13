@@ -8,6 +8,31 @@ Tu m'aides à faire évoluer le projet en écrivant du code, en corrigeant des b
 
 ---
 
+## Deux règles du propriétaire (13/11/2026) — elles te lient aussi
+
+Valables pour TOUS les assistants de Pilot (assistant de suivi, agent d'un
+projet, agent hors projet, codeur) **et pour toi, l'assistant de développement**.
+Texte de référence, **unique**, jamais recopié ailleurs :
+`src/js/regles-communes-assistants.js` (constante `REGLES_COMMUNES_ASSISTANTS`).
+
+1. **Le vécu du propriétaire l'emporte sur la documentation.** Un fait constaté
+   sur sa machine par un essai réel devient la vérité de référence ; une limite
+   tirée d'une documentation ne s'oppose jamais à un essai réussi (au pire :
+   une inconnue à vérifier), et une réserve qu'il a démentie ne revient plus.
+2. **Aucun sujet validé ne disparaît faute de date.** Un sujet validé mais non
+   lancé devient immédiatement une tâche **datée**, avec un porteur nommé et un
+   rappel. « À trancher », « plus tard », « à voir » sans échéance ne sont plus
+   des états valides : soit une date, soit une clôture explicite. Avant de dire
+   « reporté », vérifier que le sujet figure encore dans les tâches ouvertes
+   **avec** une date.
+
+Le contrôle est déjà branché (ne pas le défaire) : signalement sous la réponse
+des écrans 🧭 et π (`src/js/regles-communes-signal.js`), refus d'une tâche
+reportée sans date dans `create_task` (`auditUndatedDeferral`). Détail :
+`docs/rapports/RAPPORT-regles-communes-assistants.md`.
+
+---
+
 ## Langue
 
 - **Parle toujours en français**, même quand tu raisonnes ou analyses du code.
@@ -87,6 +112,7 @@ Pour minimiser les tokens consommés en nouvelle session, applique ces règles �
 | Agents du projet (multi-onglets configurés) | `spec_project_agents.md` |
 | Créer / mettre à jour `AGENTS.md` par l'IA (bouton de la toolbar agent, issue #5) | `spec_agents_md.md` |
 | Assistant (suivi multi-projets, lecture seule) | `spec_super_agent.md` |
+| **Deux règles communes à tous les assistants** (vécu du propriétaire > documentation ; aucun sujet validé sans date) — source unique, contrôle visible | `src/js/regles-communes-assistants.js` + `spec_super_agent.md` § 8 + `docs/rapports/RAPPORT-regles-communes-assistants.md` |
 | Tableau de bord projet (métriques, Git, langages) | `spec_dashboard.md` |
 | Coffre fort de mots de passe (chiffré) | `spec_vault.md` |
 | GDS (gestionnaire de sources) | `plan_gds.md` (roadmap) → `spec_gds.md` (spec détaillée, phases A→B→C) ; **mode réseau multi-postes** (un seul poste tient un projet) : `spec_reseau.md` ; mise en place : `docs/gds-server-setup.md` (serveur, référence) + `docs/gds-guide-mise-en-place.md` (parcours de retest complet, checklist serveur → usage à plusieurs) |
@@ -227,6 +253,8 @@ pilot/
 │       ├── session-history.js # Historique sessions (H9) : index .pilot/sessions.jsonl + recherche + tags
 │       ├── feedback.js       # Onglet « 💬 Feedback » : remarques/évolutions (GitHub + email + lecture issues)
 │       ├── screen-mode.js    # SOURCE UNIQUE des trois modes d'écran : « Détaillé », « Assistant seul », « Vocal » — clé unique `pilot_screen_mode` + migration de l'ancien réglage binaire `pilot_superagent_immersive` (valeur conservée), cycle, infobulle du mode COURANT puis du mode SUIVANT, garde anti-double-clic `MODE_CLICK_GUARD_MS` = 400 ms, `screenModeScreen(mode)` (mode → écran, SEULE correspondance) ; LE BOUTON EST LE LOGO (`#mode-logo`, autour de `#btn-project-logo`, bandeau du haut de la colonne) — ni mot, ni icône, ni pastille, plus aucun `#screen-mode-button` nulle part ; il entre dans l'overlay des deux pleins écrans et y prend la MÊME place que dans « Détaillé » (une seule règle CSS à deux sélecteurs), puis il est restitué exactement à sa place à chaque sortie ; l'écran « Vocal » est RÉEL depuis le lot 2 (niveau du micro MESURÉ depuis le lot 3, coupure de parole = lot 4) ; aucun écran redessiné, aucun écran de réglage — couverture : trois-modes-ecran.test.js + ecran-vocal-lot2.test.js
+│       ├── regles-communes-assistants.js # SOURCE UNIQUE des DEUX RÈGLES COMMUNES À TOUS LES ASSISTANTS (décision du propriétaire 13/11/2026) : `REGLES_COMMUNES_ASSISTANTS` (1. le VÉCU du propriétaire prime sur la documentation — un essai réel chez lui ne se discute pas, une limite de doc ne s'oppose jamais à un essai réussi et une réserve démentie ne revient plus ; 2. aucun sujet validé ne disparaît faute de date — tâche DATÉE, porteur nommé, rappel ; « à trancher » / « plus tard » / « à voir » sans échéance ne sont plus des états valides, soit une date soit une CLÔTURE explicite), `reglesCommunesAssistantsBlock()`, `REGLES_COMMUNES_REPERE_1/2` + le CONTRÔLE de chaque règle : `findDocumentationReserveSigns`/`documentationReserveNotice` (réserve de doc opposée à un refus) et `auditUndatedDeferral`/`undatedDeferralNotice`/`displayDeferralMarker` (report sans date, refusé AVANT écriture) + `reglesCommunesAnswerNotice` ; PURE (aucun import, aucun DOM, aucun Tauri) et sans accent grave/`${` (CONTRAT d'extraction) — LUE par TROIS voies : `super_agent.rs` (`include_str!` + `extract_regles_communes` entre les délimiteurs `export const REGLES_COMMUNES_ASSISTANTS = \`` et `\`;`), `structured-brief.js` (enveloppe de TOUTE demande déléguée) et `pilot-context.ts` (extension réécrite à côté des autres par `AgentService::write_regles_communes`) ; verrous `src/js/regles-communes-assistants.test.js` + `les_regles_communes_sont_injectees_dans_le_prompt` + `write_regles_communes_ecrit_la_source_unique` — rapport `docs/rapports/RAPPORT-regles-communes-assistants.md`
+│       ├── regles-communes-signal.js # L'ÉCRIVAIN UNIQUE du signalement des deux règles sous une réponse (écrans 🧭 `super-agent.js` et π `agent-pi.js`) : `showReglesCommunesNotice(section, texte)` ne décide RIEN (la décision est dans `regles-communes-assistants.js`), n'écrit rien sur une réponse saine, ne double jamais son propre signalement, et reste fail-open ; classe CSS unique `.super-rules-notice`
 │       ├── conversation-scroll.js # POSITION DE LA CONVERSATION AU RETOUR D'UN PLEIN ÉCRAN (§8ter de `spec_modes_ecran_vocal.md`) — décisions PURES, aucun DOM, aucun minuteur : `CONVERSATION_SCROLL_BOTTOM_THRESHOLD` (60, valeur UNIQUE), `conversationAtBottom`, `conversationScrollMax`, `conversationScrollSnapshot`, `conversationScrollTarget`, `conversationScrollReplayTarget` (la même décision rejouée UNE fois sur la géométrie réelle au premier signal de rendu : la mise en page de « Détaillé » est parfois TRANSITOIRE et la conversation était écrite tout en haut) et `conversationScrollReturnSnapshot` (quelle photographie rendre : celle de « Détaillé », prise en le QUITTANT, l'emporte sur le bas forcé par l'entrée en « Assistant seul » — issue #82 — sauf si l'utilisateur a remonté la conversation pendant le plein écran) ; écritures dans `super-agent.js` : `memoizeSuperScroll` (à la sortie, avant les déplacements de nœuds), `memoizeSuperDetailScroll` (depuis `enterImmersive`, avant le bas forcé), `restoreSuperScroll` (dernière instruction de `exitImmersive` ET de `exitVocal` : les TROIS voies de sortie — logo, Échap, fermeture de l'onglet — se comportent pareil) et `replaySuperScrollAfterLayout` — couverture : conversation-scroll.test.js + retour-mode-conversation-en-bas.test.js
 │       ├── super-agent.js    # Onglet « 🧭 Assistant » : suivi multi-projets lecture seule (chat, config, init, relais des choix d'agent, tâche #22) + ÉCRAN DU MODE VOCAL (lot 2 : overlay `.pilot-vocal` — barre de 44 px qui ne porte RIEN (le logo, bouton des modes, se pose au-dessus d'elle, à sa place des trois modes), objet lumineux 168 px + trait 200×3 px, UNE ligne d'état, la barre de saisie DÉPLACÉE ; quatre états repos/écoute/réflexion/parole teintés par `--vocal-*`, trait de niveau piloté par `--vocal-level` (niveau réel fourni par `vocal-mic.js`) ; réduction de mouvement = `prefers-reduced-motion` + `window._pilotModalAnimations`, zéro nouveau réglage ; trois sorties — même bouton (le logo), Échap, fermeture de l'onglet — et jamais deux pleins écrans) ; fonctions pures `vocalScreenState` / `vocalStateClass` / `vocalStatusText` / `vocalReducedMotion` ; DÉTECTION DE L'ÉCOUTE (correctif « l'écran restait sur Je vous écoute… ») : pures `vocalCapte(niveau, etait)` et `vocalVoiceStep` à DEUX seuils (`VOCAL_VOICE_ON = 0,06` / `VOCAL_VOICE_OFF = 0,03`, hystérésis) + drapeau `vocalMicCapte` alimenté par le NIVEAU dans `vocalSetLevel` (qui réapplique l'état quand la décision change) et `listening: vocalMicListening && vocalMicCapte` dans `applyVocalState` — `vocal-mic.js` inchangé, lecture auto par le bouton `agent-read-btn` EXISTANT (`autoReadVocalReply`) ; LOT 4a : `vocalBargeIn` (voix par-dessus la lecture → `stopReading()`, SEULE voie existante, aucune reprise automatique, aucune API audio ici — la décision vient de `vocal-mic.js`) + `vocalSyncMicSpeaking` (l'état `READ_ALOUD_STATE_EVENT` est la seule source qui arme la garde du micro)
 │       ├── assistant-instructions.js # INSTRUCTIONS DE L'ASSISTANT — le nom n'y est JAMAIS recopié (pures, aucun DOM, aucun import Tauri) : `INSTRUCTION_NAME_PLACEHOLDER` = `"{nom}"` (la MÊME valeur que `assistant_identity::INSTRUCTION_NAME_TOKEN`, tenue par un verrou), `promptNeedsDedicatedSave(edite, charge)` (une modification RÉELLE du prompt part par `set_super_agent_prompt` — l'écrivain unique —, un texte inchangé n'écrit rien) et `instructionNameTokenCount` ; corrige « un personnage figé dans les instructions » : les textes livrés ne nomment personne, le nom est rempli à chaque envoi par `assistant_display_name` (personnage → nom réglé → « Assistant »), et enregistrer les Options ne réécrit plus le prompt en vigueur (`save_config` le préserve) — couverture : personnage-jamais-fige-dans-les-instructions.test.js

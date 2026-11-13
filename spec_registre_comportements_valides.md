@@ -69,6 +69,8 @@
 | 28 | Le message Telegram de l'assistant nomme le projet dont il est QUESTION, jamais celui qui est simplement ouvert à l'écran (le projet ouvert ne sert que par défaut, « Assistant » si rien n'est identifiable). | `src/js/etiquette-telegram-projet-reel.test.js` :: VERROU : MakeFilm ouvert, travail réel sur Pilot → « pilot », jamais « MakeFilm » |
 | 29 | Pendant la veille, l'écran le dit : la ligne qui demande le nom reste visible et le cercle prend l'aspect de l'attente. | `src/js/ecran-vocal-veille-affichee.test.js` :: l'exception ne rend visible que la ligne d'etat, et le dit en clair |
 | 30 | L'oreille intégrée Whisper est livrée sur Windows seulement : les fabrications macOS ne la compilent pas, et sa branche Apple est tout de même compilée à part, avant toute publication, avec son journal. | `src/js/oreille-integree-whisper-livraison.test.js` :: AUCUNE cible Apple ne le porte (confinement du 2026-11-16) |
+| 31 | Les deux règles communes à tous les assistants sont écrites à UN seul endroit et réellement lues par eux : le vécu du propriétaire prime sur la documentation, aucun sujet validé ne disparaît faute de date. | `src/js/regles-communes-assistants.test.js` :: toute demande déléguée (brief structuré) porte les deux règles |
+| 32 | Un sujet reporté sans date n'est plus un état valide : l'assistant ne peut plus créer une tâche « à trancher » sans échéance, et le refus nomme le marqueur et la sortie (une date, ou une clôture explicite). | `src/js/regles-communes-assistants.test.js` :: refuse la création d'une tâche reportée sans date (porte visible) |
 
 ## Ce que le garde-fou vérifie
 

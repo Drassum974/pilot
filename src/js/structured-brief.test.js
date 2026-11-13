@@ -99,9 +99,14 @@ describe("applyAssistantBriefEnvelope", () => {
     expect(out).toContain("Tâche brute");
   });
 
-  it("forceStructured=false ET qualityGate=false → tâche inchangée", () => {
+  it("forceStructured=false ET qualityGate=false → la tâche est intacte, avec les deux règles communes", () => {
     const out = applyAssistantBriefEnvelope("Tâche brute", { forceStructured: false, qualityGate: false });
-    expect(out).toBe("Tâche brute");
+    // Décision du propriétaire du 13/11/2026 : les DEUX RÈGLES COMMUNES ne font
+    // pas partie de l'enveloppe structurée (qu'un réglage peut désactiver) —
+    // elles précèdent la demande dans TOUS les cas.
+    expect(out.endsWith("Tâche brute")).toBe(true);
+    expect(out).not.toContain("tests du projet");
+    expect(out).toContain("Règles communes des assistants de Pilot");
   });
 
   it("brief déjà structuré → pas de double section, consigne préfixée", () => {

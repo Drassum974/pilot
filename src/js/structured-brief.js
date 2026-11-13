@@ -8,6 +8,12 @@
 // vouloir de l'assistant. Le bus d'agents (agents-bus.js) ne l'applique PAS :
 // il reçoit le brief déjà enveloppé. Inspiré du mode manuel (prompt structuré
 // + purge), car une tâche bien formulée évite les boucles de run_agents.
+//
+// L'enveloppe porte AUSSI les DEUX RÈGLES COMMUNES DE PILOT, telles qu'elles
+// sont écrites dans leur source unique `regles-communes-assistants.js` (aucune
+// recopie) : tout agent lancé par un assistant les lit donc dans SA DEMANDE, au
+// lieu de dépendre d'un paragraphe de consignes que personne ne relit.
+import { reglesCommunesAssistantsBlock } from "./regles-communes-assistants.js";
 
 /** Consigne quality-gate à préfixer aux prompts (vide si désactivée). */
 export function qualityGateInstruction(enabled) {
@@ -55,6 +61,7 @@ export function buildStructuredBrief(task, qualityGateEnabled = true) {
   const t = String(task || "").trim();
   return (
     qg +
+    reglesCommunesInstruction() +
     "## Contexte\n" +
     "Tu es un agent du registre de Pilot, lancé par l'assistant de suivi multi-projets. " +
     "Exécute la tâche suivante de façon autonome et complète, dans le projet de travail indiqué.\n\n" +
@@ -74,9 +81,27 @@ export function buildStructuredBrief(task, qualityGateEnabled = true) {
 }
 
 /**
+ * Les DEUX RÈGLES COMMUNES DE PILOT, prêtes à préfixer une demande déléguée.
+ * Le texte vient de la source unique `regles-communes-assistants.js` : il n'est
+ * jamais réécrit ici. Chaîne vide seulement si cette source est illisible
+ * (fail-open : aucun brief n'est bloqué par ce bloc).
+ * @returns {string}
+ */
+export function reglesCommunesInstruction() {
+  try {
+    const block = reglesCommunesAssistantsBlock();
+    return block ? block + "\n\n" : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Applique l'enveloppe de brief structuré à une tâche UNIQUEMENT si elle n'en
  * contient pas déjà les sections (ne duplique pas les sections déjà rédigées
  * par l'assistant). Préfixe toujours la consigne quality-gate quand activée.
+ * Les deux règles communes de Pilot précèdent la demande dans TOUS les cas :
+ * un brief déjà structuré par l'assistant ne s'en passe pas.
  * @param {string} task
  * @param {boolean} [qualityEnabled=true]
  * @returns {string}
@@ -84,7 +109,7 @@ export function buildStructuredBrief(task, qualityGateEnabled = true) {
 export function ensureStructuredBrief(task, qualityEnabled = true) {
   const t = String(task || "");
   if (hasStructuredSections(t)) {
-    return qualityGateInstruction(qualityEnabled) + t;
+    return qualityGateInstruction(qualityEnabled) + reglesCommunesInstruction() + t;
   }
   return buildStructuredBrief(t, qualityEnabled);
 }
@@ -93,6 +118,11 @@ export function ensureStructuredBrief(task, qualityEnabled = true) {
  * Point d'entrée unique pour l'enveloppe mécanique côté UI : applique le brief
  * structuré seulement si `forceStructured` est activé (défaut true), sinon ne
  * fait que préfixer la consigne quality-gate (si activée).
+ *
+ * Les DEUX RÈGLES COMMUNES DE PILOT sont posées dans LES DEUX cas : elles ne
+ * font pas partie de l'enveloppe structurée (qu'un réglage peut désactiver),
+ * elles valent pour tout assistant — un agent lancé sans brief structuré les
+ * reçoit quand même.
  * @param {string} task
  * @param {object} [opts]
  * @param {boolean} [opts.forceStructured=true]
@@ -101,7 +131,7 @@ export function ensureStructuredBrief(task, qualityEnabled = true) {
  */
 export function applyAssistantBriefEnvelope(task, { forceStructured = true, qualityGate = true } = {}) {
   if (forceStructured === false) {
-    return qualityGateInstruction(qualityGate) + String(task || "");
+    return reglesCommunesInstruction() + qualityGateInstruction(qualityGate) + String(task || "");
   }
   return ensureStructuredBrief(task, qualityGate);
 }

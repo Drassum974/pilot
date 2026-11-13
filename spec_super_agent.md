@@ -3283,6 +3283,23 @@ La **mémoire** de l'assistant (son suivi multi-projets + sa configuration) peut
 
 ## 8. Garde-fous
 
+- **Deux règles communes à TOUS les assistants (décision du propriétaire du
+  13/11/2026)** : le vécu du propriétaire prime toujours sur la documentation,
+  et aucun sujet validé ne disparaît faute de date. Le texte des deux règles
+  n'existe qu'à UN endroit, `src/js/regles-communes-assistants.js`, lu par les
+  trois voies qui atteignent les assistants : prompt de l'assistant de suivi
+  (`super_agent.rs`, `extract_regles_communes`), enveloppe de toute demande
+  déléguée (`structured-brief.js`), et extension de contexte d'un agent
+  (`pilot-context.ts`, module réécrit à côté des extensions par
+  `AgentService::write_regles_communes`). Le contrôle est VISIBLE, pas
+  seulement écrit : une limite de documentation opposée à un essai du
+  propriétaire est signalée sous la réponse (`regles-communes-signal.js`,
+  écran 🧭 et onglet π), et `create_task` REFUSE une tâche reportée sans date
+  (`auditUndatedDeferral`) en nommant le marqueur et la sortie. Verrous :
+  `src/js/regles-communes-assistants.test.js`,
+  `super_agent::tests::les_regles_communes_sont_injectees_dans_le_prompt`,
+  `agent_service::tests::write_regles_communes_ecrit_la_source_unique`.
+  Rapport : `docs/rapports/RAPPORT-regles-communes-assistants.md`.
 - **Lecture seule stricte (technique)** : l'extension `pilot-assistant-files`
   bloque toute écriture hors de `~/.pilot/assistant/` (les projets sont
   inaccessibles en écriture, indépendamment de la consigne système).
