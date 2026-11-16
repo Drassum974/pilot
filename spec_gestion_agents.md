@@ -121,6 +121,7 @@ L'onglet **🎭 Agents** sert à **configurer l'équipe d'agents** et à **suivr
 - **Chaque demande en attente dit quel agent la traite** : l'agent est celui **enregistré avec la demande** au moment de sa mise en file (jamais un nom supposé à l'affichage). L'agent **principal du projet** (celui que Pilot ouvre pour chaque projet) s'affiche « agent : principal du projet » — son identifiant technique (`default`) n'est jamais montré. Si l'agent n'est pas connu, la ligne l'écrit noir sur blanc (« agent : agent non défini ») : **jamais un blanc** à la place du nom. La tâche **en cours** garde son affichage habituel.
 - La commande **`/file`** affiche la file complète du projet dans la discussion (mêmes rangs, mêmes agents) ; **`/file vide`** abandonne les demandes **en attente** et annonce **combien** ont été abandonnées (la tâche en cours n'est jamais arrêtée).
 - **Aucune demande ne disparaît en silence** : une demande en attente dont la tâche porteuse s'est arrêtée reste **visible** et **relançable** ; si elle est abandonnée (par vous, par le chien de garde ou par « tout arrêter »), son libellé est écrit dans `.pilot/agent-stops.log` et l'écran vous le signale.
+- **Un projet bloqué se débloque tout seul** : la place d'un projet n'est tenue que par une tâche **réellement démarrée et vivante**. Si la tâche qui avait déposé une demande s'est arrêtée (vous l'avez arrêtée, elle est morte), la demande **reste visible** dans la file et signalée, mais elle **ne bloque plus le projet** : la demande suivante démarre. Un lancement **refusé** ne bloque jamais non plus (l'écran le dit), et le chien de garde ne peut plus rafraîchir le verrou qu'il doit faire tomber : il libère la place au bout du délai d'inactivité, comme prévu.
 <!-- /HELP:agents -->
 
 ### Agent `plan-maker` (planificateur)
@@ -499,6 +500,7 @@ toucher une map `agent_sessions` d'`AppState` (champ retiré en phase 2).
 | `src/js/agents-ui.js` | Rendu de l'onglet Agents : **configuration** (liste + éditeur, dont le sélecteur de compétences) et panneau d'**activité** des runs. |
 | `src/js/project-task-queue.js` | File d'attente **par projet** (mission 385) : rangs et libellés en français (purs), vue de la file, textes affichés, et état de la file des **commandes manuelles** du chat (mise en file + démarrage automatique à la libération). |
 | `src/js/project-queue-view.js` | Composition de la file **visible** d'un projet à partir des files réelles (commandes, missions, délégations, agents en file) + abandon des demandes en attente (`/file vide`). Aucune logique de lancement. |
+| `src/js/verrou-de-run.js` | **Décision unique du verrou de run** (module **pur** : aucun DOM, aucun import Tauri, aucune I/O, aucun minuteur) : `decideQueueDrain` (« lancé » = un run a réellement démarré), `decideRunLockAfterDrain` (conservé seulement pour un lancement réel, ou pour des demandes **non tentables**), `decideQueuedDemandPlacement` (demande orpheline ni exécutée ni bloquante), `decideActivityStamp` (horodatage d'inactivité **monotone**, jamais par le chien de garde). |
 
 ### File d'attente des tâches par projet (mission 385)
 
@@ -567,6 +569,54 @@ La file **n'invente aucune file parallèle** : elle compose celles qui existent
   peut pas disparaître d'une demande en attente ; un agent inconnu est **dit**
   et jamais laissé vide ; ordre, rangs et nombre de demandes inchangés ; ligne
   « en cours » inchangée).
+
+#### Le verrou de run ne survit jamais à son propriétaire
+
+**Défaut corrigé** (rapport `docs/rapports/RAPPORT-verrou-de-run-bloque-la-file.md`) :
+le verrou d'un projet pouvait rester tenu alors qu'aucun run ne le portait, et la
+file du projet restait bloquée « à vie ». Trois causes, réunies dans un seul
+module de décision :
+
+1. la vidange de la file répondait « lancé » dès qu'une entrée existait, **même
+   quand le lancement était refusé** — le verrou croyait avoir un propriétaire ;
+2. une demande dont la **mission propriétaire avait disparu** (arrêt d'agent →
+   contexte de run détruit) restait orpheline pour toujours ;
+3. le **chien de garde antidatait sa propre preuve d'inactivité** : chaque
+   passage de rejeu réécrivait l'horodatage, donc le balayage périodique
+   rafraîchissait le verrou qu'il devait faire tomber.
+
+**Décision unique et pure** : `src/js/verrou-de-run.js` (aucun DOM, aucun import
+Tauri, aucune I/O, aucun minuteur) — `decideQueueDrain`,
+`decideRunLockAfterDrain`, `decideQueuedDemandPlacement`, `decideActivityStamp`.
+Règles, **dans l'ordre** :
+
+| Cas | Action sur le verrou |
+|---|---|
+| des demandes présentes n'ont **pas pu être tentées** (clé de file inutilisable : on ignore qui les porte) | **conservé** — les abandonner perdrait une mission |
+| un run a **réellement démarré** (`runAgentTurn` a rendu `true` après envoi du prompt) | **conservé** |
+| au moins un lancement **refusé** (mission propriétaire disparue, agent introuvable, tour non parti) | **libéré**, le refus est dit et tracé ; les demandes restent en file |
+| rien n'a été tenté | **libéré** |
+
+- « Lancé » ne veut dire qu'une chose : **un run a réellement démarré**. C'est la
+  seule preuve qui peut tenir un verrou ; `launchNextQueued` rend
+  `{ launched, reason }` sur **tous** ses chemins (`no-demand`, `owner-gone`,
+  `agent-missing`, `turn-not-started`, `launched`) — plus aucun booléen ambigu.
+- Une demande **orpheline** n'est jamais exécutée dans un contexte étranger : la
+  demande est conservée, marquée (`ownerMissingReported`), signalée à l'écran et
+  journalisée (`reason=queue-replay-no-owner`) ; elle ne tient plus le projet.
+- **Horodatage d'inactivité fiable** : `stampRunActivity` est le SEUL point qui
+  écrit `lastActivityAt`, et seulement pour une source qui prouve une activité
+  (événement d'agent, tour réellement lancé) ; il est **monotone** (il ne recule
+  jamais). Le chien de garde n'appelle que `armInactivityTimeout` (réarmement
+  sans horodater) : il ne peut plus antidater sa propre preuve, donc il ne
+  rafraîchit plus le verrou qu'il doit faire tomber.
+- **Aucun second mécanisme** : la libération passe par les sorties existantes
+  (`releaseStuckRunLock`, `releaseOrphanRunLock`, `launchNextQueuedForProject`).
+- Verrou : `src/js/verrou-de-run-bloque-la-file.test.js` (décisions pures ; arrêt
+  d'agent puis nouvelle demande acceptée ; retrait de mission ; relance refusée ;
+  verrou sans propriétaire vivant ; invariants de câblage). Les portes du chien de
+  garde (`verrou-orphelin.test.js`, `agents-bus.test.js`) gardent leurs
+  garde-fous, dont la règle des **deux mesures concordantes**.
 
 #### Ordre d'arrivée à l'admission (P1)
 

@@ -111,6 +111,20 @@ import {
   classifyExclusivitySession,
   RECENT_ACTIVITY_WINDOW_MS,
 } from "./exclusivity-queue.js";
+// DÉCISION UNIQUE DU VERROU DE RUN (source unique des règles, module pur) :
+// un verrou n'est tenu que par un run RÉELLEMENT démarré, un refus de lancement
+// le LIBÈRE (la demande reste en file), et le chien de garde n'horodate jamais
+// sa propre preuve d'inactivité. Voir l'en-tête du module.
+import {
+  decideActivityStamp,
+  decideQueuedDemandPlacement,
+  decideQueueDrain,
+  decideRunLockAfterDrain,
+  RUN_LOCK_KEEP,
+  RUN_ACTIVITY_AGENT_EVENT,
+  RUN_ACTIVITY_TURN_LAUNCHED,
+  QUEUE_REFUSED_OWNER_GONE,
+} from "./verrou-de-run.js";
 // Identité de projet (mission P3, défaut D3) : SOURCE UNIQUE. Le bus comparait
 // le projet en chaîne BRUTE (verrou de run, files d'exclusivité) : deux
 // écritures du même dossier donnaient deux verrous et deux files, dont l'une
@@ -1266,11 +1280,21 @@ async function releaseStuckRunLockForKey(key, opts = {}) {
     //    reste couvert par les filets fantômes (25 min) et l'arrêt auto T2.
     const idleSince = ctx.lastActivityAt || ctx.startedAt;
     if (noActive && idleSince && Date.now() - idleSince > busState.timeoutMs) {
-      const drained = await drainExclusivityQueues(ctx, key);
-      if (drained) {
+      const drain = await drainExclusivityQueues(ctx, key);
+      if (drain.launched) {
         console.warn("[agents-bus] watchdog : run inactive depuis trop longtemps mais demandes en file → relance.");
-        resetTimeout(ctx);
+        armInactivityTimeout(ctx);
         return;
+      }
+      // Un lancement REFUSÉ n'est pas un propriétaire : on ne conserve pas le
+      // verrou pour une tentative ratée (défaut « la file ne repart jamais »).
+      if (drain.sentence) {
+        console.warn("[agents-bus] watchdog :", drain.sentence);
+        try {
+          emit("notify", { agentId: null, message: `⚠️ ${drain.sentence}` });
+        } catch (_) {
+          /* aucun écouteur : la console a déjà l'information */
+        }
       }
       console.warn("[agents-bus] watchdog :", await settleWatchdogRelease(ctx, "timeGuard", idleSince));
       endRun(key, ctx.generation);
@@ -1281,9 +1305,9 @@ async function releaseStuckRunLockForKey(key, opts = {}) {
   // Verrou bloqué : avant de libérer, drainer les files d'exclusivité du projet.
   // Des demandes en file (exclusivityQueue) derrière un agent fantôme/inactif
   // doivent RÉELLEMENT démarrer au lieu de rester coincées (tâche 2).
-  // launchNextQueued réactive la run (runAgentTurn) → on conserve le verrou.
-  const drained = await drainExclusivityQueues(ctx, key);
-  if (drained) {
+  // `launchNextQueued` réactive la run (runAgentTurn) → on conserve le verrou.
+  const drain = await drainExclusivityQueues(ctx, key);
+  if (drain.launched) {
     if (ghosts) {
       console.warn("[agents-bus] watchdog : agents fantômes/inactifs mais demandes en file → relance des demandes en attente.");
     } else if (orphanQueue) {
@@ -1293,16 +1317,27 @@ async function releaseStuckRunLockForKey(key, opts = {}) {
     } else {
       console.warn("[agents-bus] watchdog : aucun agent actif mais demandes en file → relance des demandes en attente.");
     }
-    resetTimeout(ctx);
+    armInactivityTimeout(ctx);
     return;
   }
 
-  // La file ne doit JAMAIS être abandonnée : si des demandes restent en file
-  // (échec de lancement, sonde indisponible), on CONSERVE le verrou au lieu de
-  // libérer — une libération les perdrait avec le contexte.
-  if (pendingExclusivityCount(ctx) > 0) {
-    console.warn("[agents-bus] watchdog : demandes encore en file → verrou conservé (reprise garantie).");
-    resetTimeout(ctx);
+  // DÉCISION UNIQUE (`decideRunLockAfterDrain`) : SEUL un run réellement
+  // démarré conserve le verrou. Une tentative ratée le LIBÈRE et le dit — les
+  // demandes restantes ne sont jamais supprimées, elles restent en file,
+  // visibles et abandonnables, mais elles ne tiennent plus le projet.
+  const lockDecision = decideRunLockAfterDrain({ drain, pending: pendingExclusivityCount(ctx), door });
+  if (lockDecision.sentence) {
+    console.warn("[agents-bus] watchdog :", lockDecision.sentence);
+    if (lockDecision.reason === "replay-refused") {
+      try {
+        emit("notify", { agentId: null, message: `⚠️ ${lockDecision.sentence}` });
+      } catch (_) {
+        /* aucun écouteur : la console a déjà l'information */
+      }
+    }
+  }
+  if (lockDecision.action === RUN_LOCK_KEEP) {
+    armInactivityTimeout(ctx);
     return;
   }
 
@@ -1445,14 +1480,24 @@ export async function sweepOrphanRunLocks(now = Date.now()) {
         //     « busy-stale » (25 min) : une session figée ne bloque pas à vie.
         if (pendingExclusivityCount(ctx) > 0) {
           ctx.runState = "running";
-          const relaunched = await drainExclusivityQueues(ctx, key);
-          if (relaunched || pendingExclusivityCount(ctx) > 0) {
-            resetTimeout(ctx);
+          const drain = await drainExclusivityQueues(ctx, key);
+          // DÉCISION UNIQUE : seul un run RÉELLEMENT relancé conserve le verrou.
+          // Un refus (mission propriétaire disparue) ne le conserve plus : sinon
+          // la file ne repartait jamais et le projet restait bloqué à vie.
+          const decision = decideRunLockAfterDrain({ drain, pending: pendingExclusivityCount(ctx), door: "stopping" });
+          if (decision.action === RUN_LOCK_KEEP) {
+            armInactivityTimeout(ctx);
             console.warn(
-              "[agents-bus] balayage : run restée « stopping » avec des demandes en file → relance des demandes en attente (verrou conservé).",
+              "[agents-bus] balayage :",
+              decision.sentence || "verrou conservé (une demande reste portée par un run réel).",
             );
             continue;
           }
+          if (decision.sentence) {
+            console.warn("[agents-bus] balayage :", decision.sentence);
+          }
+          // Aucun lancement : on rend l'état réel de la run avant de la libérer.
+          ctx.runState = "stopping";
         }
         if (await projectHasWorkingSession(key)) {
           console.warn(
@@ -1643,31 +1688,40 @@ export async function forceReleaseProjectRunLock(project) {
 }
 
 // Tâche 2 (verrou fantôme) : lance les demandes en file d'exclusivité du projet
-// (exclusivityQueue) qui attendaient derrière un agent fantôme/inactif. Retourne
-// true si au moins une demande a été réellement lancée (la run redevient active)
-// ; false si la file est vide (rien à drainer → le verrou peut être libéré).
-// S'appuie sur launchNextQueued (getRunCtx(project)) qui démarre le tour de la
-// demande suivante et conserve le groupe parallèle (pending préservé).
+// (exclusivityQueue) qui attendaient derrière un agent fantôme/inactif.
+//
+// Retourne la DÉCISION de vidange (`decideQueueDrain`, module pur) : « lancé » ne
+// veut dire qu'une chose — un run a RÉELLEMENT démarré. Une tentative refusée
+// (mission propriétaire disparue, agent introuvable, tour non parti) est
+// comptée comme un refus, jamais comme un lancement : c'est cette confusion qui
+// laissait croire au verrou qu'il avait encore un propriétaire.
+// Les demandes présentes mais NON TENTABLES (clé de file inutilisable) sont
+// comptées à part (`blocked`) : le verrou reste alors conservé, car les libérer
+// perdrait une mission dont on ignore encore le porteur.
+// S'appuie sur launchNextQueued, qui démarre le tour de la demande suivante dans
+// le contexte PROPRIÉTAIRE (pending préservé).
 async function drainExclusivityQueues(ctx, runKeyValue) {
   // Les files d'exclusivité sont indexées par PROJET RÉEL : pour une mission de
   // LECTURE (clé `projet#read:<n>`), on draine la file du projet avec le
   // contexte de CETTE run.
   const project = ctx.project || runKeyValue;
   const queue = ctx.exclusivityQueue || {};
-  const keys = Object.keys(queue);
-  if (keys.length === 0) return false;
-  let launched = false;
-  for (const key of keys) {
+  const attempts = [];
+  let blocked = 0;
+  for (const key of Object.keys(queue)) {
+    const entries = queue[key] || [];
+    if (entries.length === 0) continue;
     const idx = key.indexOf('\u{1f}');
-    if (idx < 0) continue;
-    const agentId = key.slice(idx + 1);
-    if (!agentId) continue;
-    if ((queue[key] || []).length > 0) {
-      await launchNextQueued(agentId, project, runKeyValue);
-      launched = true;
+    const agentId = idx < 0 ? "" : key.slice(idx + 1);
+    if (!agentId) {
+      // Clé de file inutilisable : on ne peut pas nommer l'agent à relancer.
+      blocked += entries.length;
+      continue;
     }
+    const outcome = await launchNextQueued(agentId, project, runKeyValue);
+    attempts.push({ agentId, launched: outcome.launched === true, reason: outcome.reason || "not-launched" });
   }
-  return launched;
+  return decideQueueDrain(attempts, { blocked });
 }
 
 // SONDE D'ACTIVITÉ UNIQUE des chemins RÉPÉTÉS du bus (watchdog de run, portes
@@ -2109,12 +2163,25 @@ export async function launchNextQueuedForProject(agentId, project, ownRunKey) {
     const existingKey = findExclusivityKey(c.exclusivityQueue, agentId, project);
     const q = existingKey ? c.exclusivityQueue[existingKey] : null;
     if (q && q.length > 0) {
-      await launchNextQueued(agentId, project, key);
-      return;
+      return await launchNextQueued(agentId, project, key);
     }
   }
+  return { launched: false, reason: "no-demand" };
 }
 
+/**
+ * Relance la demande en TÊTE de file d'exclusivité de (project, agent).
+ * Contrat de retour — c'est lui qui décide du sort du verrou de run :
+ *  - `{ launched: true,  reason: "launched" }` : le tour est RÉELLEMENT parti ;
+ *  - `{ launched: false, reason }` : `no-demand` (file vide), `owner-gone`
+ *    (mission propriétaire disparue → entrée CONSERVÉE, jamais exécutée pour une
+ *    autre mission), `agent-missing`, `turn-not-started`.
+ * Un `launched: false` ne tient JAMAIS le verrou (voir verrou-de-run.js).
+ * @param {string} agentId
+ * @param {string} project - projet réel (clé de la file)
+ * @param {string} [runKeyOverride] - clé de run appelante
+ * @returns {Promise<{launched:boolean, reason:string}>}
+ */
 async function launchNextQueued(agentId, project, runKeyOverride) {
   // `project` = projet RÉEL (clé de la file d'exclusivité) ; `runKeyOverride` =
   // clé de run appelante (celle qui vient de libérer son tour).
@@ -2125,13 +2192,21 @@ async function launchNextQueued(agentId, project, runKeyOverride) {
   const queue = (callerCtx && callerCtx.exclusivityQueue) || exclusivityQueueOfProject(project);
   const qk = exclusivityKey(project, agentId);
   const head = (queue[qk] || [])[0];
-  if (!head) return;
+  if (!head) return { launched: false, reason: "no-demand" };
   // RÈGLE 4 : une entrée porte la clé de la run QUI L'A MISE EN FILE
   // (`ownerRunKey`). Sans propriétaire identifié (entrée héritée), c'est la run
   // appelante qui l'a mise en file.
   const ownerKey = head.ownerRunKey || callerKey;
   const ownerCtx = busState.runs[ownerKey];
-  if (!ownerCtx) {
+  // DÉCISION UNIQUE (module pur) : une entrée sans propriétaire identifié vient
+  // d'une run antérieure au marquage — c'est la run appelante qui l'a mise en
+  // file, elle peut la relancer dans SON contexte. Un propriétaire identifié mais
+  // DISPARU (arrêt d'agent → contexte détruit) interdit le lancement.
+  const placement = decideQueuedDemandPlacement({
+    ownerKey: head.ownerRunKey || "",
+    ownerAlive: !!ownerCtx,
+  });
+  if (placement.placement !== "launch" || !ownerCtx) {
     // Le contexte propriétaire n'existe plus. Lancer la demande dans un AUTRE
     // contexte la ferait exécuter POUR UNE AUTRE MISSION (rapport livré à la
     // mauvaise mission, `pending` décrémenté au mauvais endroit, sink absent) :
@@ -2154,10 +2229,12 @@ async function launchNextQueued(agentId, project, runKeyOverride) {
         /* aucun écouteur : la console a déjà l'information */
       }
     }
-    return;
+    // Refus RENDU à l'appelant : il ne compte JAMAIS comme un lancement, donc
+    // il ne tient jamais le verrou de run (invariant A/B du module).
+    return { launched: false, reason: QUEUE_REFUSED_OWNER_GONE };
   }
   const next = dequeueExclusivity(queue, agentId, project);
-  if (!next) return;
+  if (!next) return { launched: false, reason: "no-demand" };
   const id = next.agentId || agentId;
   const agent = busState.agents.get(id);
   if (!agent) {
@@ -2167,17 +2244,47 @@ async function launchNextQueued(agentId, project, runKeyOverride) {
       ownerCtx.parallelGroup.results[id] = { status: "error", text: `Agent "${id}" introuvable.` };
       ownerCtx.parallelGroup.pending--;
     }
-    return;
+    return { launched: false, reason: "agent-missing" };
   }
   emit("notify", { agentId: id, message: `▶️ L'agent ${id} démarre sa tâche en file d'attente sur ce projet.` });
   // Le tour est exécuté dans le contexte PROPRIÉTAIRE de la file (celui de la
   // mission qui a mis la demande en attente) : son sink, son groupe parallèle
   // et sa génération restent les siens.
-  await runAgentTurn(agent, next.brief, "", next.project || project, undefined, next.mcp_server || null, ownerCtx, next.resume || null);
+  const started = await runAgentTurn(agent, next.brief, "", next.project || project, undefined, next.mcp_server || null, ownerCtx, next.resume || null);
+  // « Lancé » ne veut dire qu'une chose : le tour est RÉELLEMENT parti.
+  return started === true
+    ? { launched: true, reason: "launched" }
+    : { launched: false, reason: "turn-not-started" };
 }
 
-function resetTimeout(ctx) {
-  ctx.lastActivityAt = Date.now();
+/**
+ * Horodate l'activité RÉELLE d'un run et réarme son minuteur d'inactivité.
+ *
+ * La décision « cette source prouve-t-elle une activité ? » est UNIQUE
+ * (`decideActivityStamp`) : seuls un événement d'agent et un lancement réel
+ * horodatent. Le chien de garde, lui, n'appelle QUE `armInactivityTimeout` — il
+ * ne peut donc plus antidater sa propre preuve d'inactivité, ni rafraîchir le
+ * verrou qu'il doit faire tomber.
+ * @param {object} ctx - contexte de run
+ * @param {string} source - RUN_ACTIVITY_AGENT_EVENT | RUN_ACTIVITY_TURN_LAUNCHED
+ * @param {number} [at] - instant (ms epoch), injectable en test
+ * @returns {{stamped:boolean, lastActivityAt:number|null}}
+ */
+function stampRunActivity(ctx, source, at = Date.now()) {
+  if (!ctx) return { stamped: false, lastActivityAt: null };
+  const decision = decideActivityStamp({ source, now: at, previous: ctx.lastActivityAt });
+  ctx.lastActivityAt = decision.lastActivityAt;
+  armInactivityTimeout(ctx);
+  return decision;
+}
+
+/**
+ * Réarme le minuteur d'inactivité d'un run SANS toucher à `lastActivityAt`.
+ * Utilisé par le chien de garde (il réarme la surveillance) et par tout
+ * appelant qui ne PROUVE aucune activité.
+ * @param {object} ctx - contexte de run
+ */
+function armInactivityTimeout(ctx) {
   if (ctx.timeoutId) clearTimeout(ctx.timeoutId);
   if (ctx.runState !== "running") return;
   ctx.timeoutId = setTimeout(async () => {
@@ -2848,7 +2955,8 @@ export function handleAgentEvent(ev) {
   if (ctx.runState !== "running") return;
 
   const type = event.type;
-  resetTimeout(ctx);
+  // PREUVE DE VIE RÉELLE : seul un événement de l'agent horodate l'activité.
+  stampRunActivity(ctx, RUN_ACTIVITY_AGENT_EVENT);
 
   if (type === "turn_start") {
     // Compteur de tours pi PAR AGENT (pas global) : en run parallèle, chaque
@@ -2991,7 +3099,7 @@ export function handleAgentEvent(ev) {
       ctx.toolCallsByAgent[agentId] = [];
       ctx.readOnlyToolCallsByAgent[agentId] = [];
       ctx.piTurnCountByAgent[agentId] = 0; // c'est une continuation du tour, pas un nouveau tour
-      resetTimeout(ctx);
+      stampRunActivity(ctx, RUN_ACTIVITY_AGENT_EVENT);
       const count = ctx.loopCorrectionCount[agentId] || 0;
       if (count < MAX_LOOP_ESCALATION) {
         const level = count; // 1..MAX_LOOP_ESCALATION (déjà incrémenté à la détection)
@@ -3057,7 +3165,7 @@ export function handleAgentEvent(ev) {
       ctx.toolCallsByAgent[agentId] = [];
       ctx.readOnlyToolCallsByAgent[agentId] = [];
       ctx.piTurnCountByAgent[agentId] = 0; // continuation du même tour logique
-      resetTimeout(ctx);
+      stampRunActivity(ctx, RUN_ACTIVITY_AGENT_EVENT);
       return;
     }
     // Fin de tour FINALE : plus aucun outil ouvert (anti-fuite).
@@ -4173,7 +4281,7 @@ async function forceStaleAgentProcessRestartIfNeeded(agent, project) {
 async function runAgentTurn(agent, brief, projectContext = "", project = null, options, mcpServer = null, runCtx = null, resume = null) {
   if (!agent) {
     emit("error", { message: "Agent introuvable pour ce tour." });
-    return;
+    return false;
   }
 
   // Ciblage de projet (run_agents) : cwd = projet cible si fourni, sinon projet
@@ -4230,7 +4338,7 @@ async function runAgentTurn(agent, brief, projectContext = "", project = null, o
       detail: msg.slice(0, 160),
     }).catch(() => {});
     failAgentTurn(agent.id, msg, ctx);
-    return;
+    return false;
   }
 
   // Point de suivi 331 : le repli de modèle n'est plus muet — trace journal +
@@ -4396,8 +4504,13 @@ async function runAgentTurn(agent, brief, projectContext = "", project = null, o
     // tour (il ferait conclure « runAgentTurn error » et pourrait arrêter un
     // process fraîchement lancé).
     void refreshAgentMissionDisplay();
-    resetTimeout(ctx);
+    // LANCEMENT RÉEL : le prompt est parti, la run a un propriétaire effectif.
+    stampRunActivity(ctx, RUN_ACTIVITY_TURN_LAUNCHED);
     console.log("[agents-bus] prompt sent to", agent.id);
+    // Contrat de retour : `true` = le tour a RÉELLEMENT démarré (prompt envoyé).
+    // C'est la SEULE preuve qu'un verrou de run peut invoquer pour se croire
+    // tenu (voir verrou-de-run.js) — un refus de lancement ne le tient jamais.
+    return true;
   } catch (err) {
     console.error("[agents-bus] runAgentTurn error", agent.id, err);
     // Bug : après un échec post-spawn (set_model refusé, timeout), tuer le
@@ -4434,6 +4547,7 @@ async function runAgentTurn(agent, brief, projectContext = "", project = null, o
       detail: String(err).slice(0, 160),
     }).catch(() => {});
     failAgentTurn(agent.id, String(err), ctx);
+    return false;
   }
 }
 
