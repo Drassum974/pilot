@@ -519,6 +519,15 @@ Quand l'utilisateur demande la publication :
 - Le front est construit **une seule fois** (`beforeBuildCommand`, qui lance aussi
   `prepare:laya`) et les paquets npm sont mis en cache par système (`~/.npm`).
   Ne pas réintroduire de `cargo build` manuel ni d'étape `prepare:laya` explicite.
+- **La version de Rust est ÉPINGLÉE** (v0.6.27, décision du 2026-11-16) :
+  `rust-toolchain.toml` à la racine donne le canal (`1.95.0`, celui du poste qui
+  passe les tests) et les **six** étapes « Setup Rust » des deux workflows
+  passent la même valeur (`with: toolchain:` — l'action fait `rustup default`,
+  donc l'input est indispensable). La monter est un **geste**, pas un oubli :
+  changer le canal sans les workflows fait échouer
+  `scripts/rust-toolchain-pin.test.js`. Motif et rapport :
+  `docs/rapports/RAPPORT-publication-v0.6.27.md` (la 0.6.26 s'était arrêtée sur
+  « Run Rust unit tests » des trois systèmes, faute d'épinglage).
 - Ces règles sont sous clé : `scripts/release-workflow.test.js` (`npx vitest run`).
 
 ### Publier quand macOS n'est pas disponible (décision du 2026-11-15)
