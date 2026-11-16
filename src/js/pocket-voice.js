@@ -397,8 +397,72 @@ export async function installPocketWeights(options = {}) {
   try {
     const invoke = await resolveInvoke(options);
     const message = await invoke(POCKET_COMMAND_INSTALL);
-    return { ok: true, message: String(message || "Voix PocketTTS installée.") };
+    return { ok: true, message: String(message || `Voix ${POCKET_ENGINE} installée.`) };
   } catch (error) {
     return { ok: false, message: shortCause(error) };
   }
+}
+
+// ── Ce qui se passe APRÈS une installation (décisions pures) ────────────────
+
+/**
+ * DÉCISION : une installation vient de se terminer — faut-il RELIRE l'état ?
+ *
+ * Défaut constaté par le propriétaire : après le téléchargement des poids, la
+ * section « Lecture des réponses » continuait d'afficher « — modèle à
+ * télécharger » et il fallait cliquer « Vérifier à nouveau » pour voir que la
+ * voix était prête. Le gestionnaire du bouton RE-RENDAIT l'écran avec l'état
+ * mémorisé (périmé) sans rien relire.
+ *
+ * La relecture suit donc la FIN RÉELLE de l'installation : ni un délai qui
+ * devine, ni une boucle, ni un minuteur — une seule relecture par installation
+ * terminée, et SEULEMENT quand elle a réussi. Un échec ne relit rien : l'état
+ * connu reste tel quel (un téléchargement raté n'efface pas ce qu'on sait déjà)
+ * et n'est jamais annoncé comme un succès.
+ *
+ * @param {{ok?: boolean, message?: string}|null} result retour
+ *        d'`installPocketWeights`
+ * @returns {boolean} vrai si l'état doit être relu
+ */
+export function pocketRefreshAfterInstall(result) {
+  return !!(result && typeof result === "object" && result.ok === true);
+}
+
+/**
+ * Ce que la ligne d'état de la section doit DIRE à la fin d'une installation,
+ * et dans quel état la peindre (`dataset.state`).
+ *
+ * Trois cas, décidés ici seulement :
+ *  - échec → la phrase le dit avec sa cause et rappelle le repli ; l'état connu
+ *    n'est pas touché ;
+ *  - succès CONFIRMÉ par l'état relu (`installed: true`) → la voix est prête ;
+ *  - succès que l'état relu ne confirme PAS encore (poids annoncés mais absents
+ *    du disque, état illisible) → on le dit franchement, en nommant ce qui
+ *    manque : jamais un succès qui mentirait sur ce qui est choisissable.
+ * @param {{ok?: boolean, message?: string}|null} result retour
+ *        d'`installPocketWeights`
+ * @param {object|null} status état NORMALISÉ relu après l'installation
+ * @returns {{text: string, state: "ok"|"missing"|"unknown"}}
+ */
+export function pocketInstallOutcomeNote(result, status) {
+  const message = String((result && result.message) || "").trim();
+  const dit = message || `Voix ${POCKET_ENGINE} installée.`;
+  if (!pocketRefreshAfterInstall(result)) {
+    return {
+      state: "missing",
+      text:
+        `Installation impossible (${message || "cause inconnue"}). La lecture continue avec la ` +
+        "voix choisie, et se rabat sur la voix locale (Piper) si besoin.",
+    };
+  }
+  const etat = status && typeof status === "object" ? status : null;
+  if (etat && etat.unknown !== true && etat.installed === true) {
+    return { state: "ok", text: dit };
+  }
+  // `pocketStatusNote` est la SEULE formulation de l'état : on la réutilise au
+  // lieu d'en écrire une seconde qui pourrait diverger.
+  return {
+    state: !etat || etat.unknown === true ? "unknown" : "missing",
+    text: `${dit} ${pocketStatusNote(etat)}`.trim(),
+  };
 }

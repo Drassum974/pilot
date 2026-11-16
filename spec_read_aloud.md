@@ -697,6 +697,22 @@ descendre les poids est `installPocketWeights` (`pocket-voice.js`), appelée par
     `POCKET_ATTRIBUTION` côté fenêtre), affichée dans la section du réglage.
 11. **Rien sur le thread principal** : les trois commandes de synthèse et
     d'installation sont `pub async fn` + `spawn_blocking`.
+12. **L'état se rafraîchit TOUT SEUL après une installation.** Défaut constaté
+    par le propriétaire : après le téléchargement des poids, la section
+    continuait d'afficher « — modèle à télécharger » et il fallait cliquer
+    « Vérifier à nouveau » pour voir que la voix était prête. Correctif : à la
+    **FIN RÉELLE** de l'installation, et **seulement si elle a réussi**
+    (`pocketRefreshAfterInstall`), l'état est **relu** par le rafraîchissement
+    **déjà existant** — la seule vérification de la section
+    (`checkLocalVoiceStatus`, celle du bouton « Vérifier à nouveau ») — donc par
+    `refreshPocketStatus`, **une seule fois** par installation terminée : aucun
+    délai qui devine, aucune boucle, aucun second mécanisme, aucun réglage
+    nouveau, aucun téléchargement. Un **échec** ne relit rien, n'efface pas
+    l'état connu et n'est jamais annoncé comme un succès ; un succès que l'état
+    relu ne confirme pas encore est **dit franchement**
+    (`pocketInstallOutcomeNote`, qui réutilise `pocketStatusNote`). Le bouton
+    « Vérifier à nouveau » reste inchangé (relecture à la demande).
+    Rapport : `docs/rapports/RAPPORT-pockettts-etat-apres-installation.md`.
 
 Couverture : `src/js/voix-pockettts.test.js` (les dix points ci-dessus, dont
 « aucune voix existante ne disparaît », « jamais par défaut », « aucun
@@ -705,7 +721,12 @@ tests de `src-tauri/src/tts_pocket.rs` (valeur stable, genre en clair,
 attribution unique, état déduit des fichiers réellement présents, poids tronqué
 jamais accepté, voix imitées = voix ordinaires, synthèse qui ne télécharge rien,
 installation refusée sans moteur et sans rien créer, arguments fixés, cache dans
-notre dossier, WAV tronqué refusé, moteur cherché à un seul endroit connu).
+notre dossier, WAV tronqué refusé, moteur cherché à un seul endroit connu),
+`src/js/pocket-etat-apres-installation.test.js` (relecture sur la **fin réelle**
+seulement, jamais après un échec, une seule relecture par installation, chemin
+unique `checkLocalVoiceStatus`, aucun minuteur, état relu qui rend la voix
+disponible et choisissable sans le suffixe « modèle à télécharger », échec qui
+n'efface pas l'état connu, « Vérifier à nouveau » inchangé).
 
 Aide utilisateur : `help/overview.md`, bloc `HELP:lire-reponses`.
 

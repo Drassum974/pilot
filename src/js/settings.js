@@ -141,6 +141,8 @@ import {
 import {
   getPocketStatus,
   installPocketWeights,
+  pocketInstallOutcomeNote,
+  pocketRefreshAfterInstall,
   pocketStatusNote,
   pocketVoiceIdFor,
   refreshPocketStatus,
@@ -2904,15 +2906,26 @@ const chkSuperAgentLongTasks = document.getElementById("setting-superagent-long-
         readAloudPocketNote.textContent = `Téléchargement des poids ${POCKET_ENGINE} en cours…`;
       }
       const result = await installPocketWeights();
-      // Le résultat est dit à l'écran, en clair : jamais un échec silencieux.
-      if (readAloudPocketNote) {
-        readAloudPocketNote.textContent = result.ok
-          ? result.message
-          : `Installation impossible (${result.message}). La lecture continue avec la voix choisie, et se rabat sur la voix locale (Piper) si besoin.`;
-        readAloudPocketNote.dataset.state = result.ok ? "ok" : "missing";
+      // FIN RÉELLE de l'installation : l'état est RELU tout de suite, par la
+      // SEULE vérification de cette section (`checkLocalVoiceStatus`, celle du
+      // bouton « Vérifier à nouveau ») — jamais un délai qui devine, jamais une
+      // boucle, une seule relecture par installation terminée.
+      if (pocketRefreshAfterInstall(result)) {
+        await checkLocalVoiceStatus(selectReadAloudVoice ? selectReadAloudVoice.value : "");
+      } else {
+        // Échec : aucune relecture qui ferait croire à une réussite. On re-rend
+        // l'état CONNU (la liste et le bouton redeviennent utilisables, rien
+        // n'est effacé).
+        refreshReadAloudVoice(selectReadAloudVoice ? selectReadAloudVoice.value : "");
       }
-      // L'état est RELU après le geste : la liste et la ligne disent la vérité.
-      refreshReadAloudVoice(selectReadAloudVoice ? selectReadAloudVoice.value : "");
+      // Le résultat est dit à l'écran, en clair : jamais un échec silencieux, et
+      // jamais un succès quand l'état relu ne le confirme pas (phrase unique du
+      // module, qui nomme alors ce qui manque encore).
+      const outcome = pocketInstallOutcomeNote(result, getPocketStatus());
+      if (readAloudPocketNote) {
+        readAloudPocketNote.textContent = outcome.text;
+        readAloudPocketNote.dataset.state = outcome.state;
+      }
     });
   }
   // Bouton d'arrêt du téléchargement en cours (rien n'est supprimé).

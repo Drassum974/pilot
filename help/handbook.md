@@ -879,7 +879,12 @@ un petit bouton **« 🔊 Écouter »** posé sous le message, à côté de la b
   ne l'installe pas lui-même. Quand il est présent, un bouton **« Installer la
   voix PocketTTS »** n'apparaît que s'il manque quelque chose, et il ne
   télécharge **que si vous cliquez** — jamais au démarrage, jamais à l'ouverture
-  des Options, jamais pendant une lecture. Ensuite tout se passe **sur cet
+  des Options, jamais pendant une lecture. **Dès que l'installation se termine,
+  l'état se met à jour tout seul** : la voix apparaît comme **prête** et
+  **choisissable**, sans avoir à cliquer « Vérifier à nouveau » (ce bouton reste
+  là pour relire à la demande, par exemple pour une voix déposée à la main). Si
+  l'installation échoue, l'état connu reste affiché et rien n'est présenté comme
+  réussi. Ensuite tout se passe **sur cet
   ordinateur, hors ligne** (le processeur suffit, aucune carte graphique). Vous
   pouvez aussi déposer **vos propres voix** : elles apparaissent comme les
   autres, « voix imitée », dans la **même** liste et le **même** réglage. Si le
