@@ -81,8 +81,16 @@ jobs:
             patchelf \
             libssl-dev \
             libgtk-3-dev
+      # Version de Rust ÉPINGLÉE : la MÊME que `rust-toolchain.toml` (source de
+      # référence du numéro) et que celle du poste qui passe les tests. Sans
+      # cela, `@stable` installe la dernière stable du JOUR et la machine de
+      # contrôle ne compile plus avec le même compilateur que le poste — l'écart
+      # qui a bloqué la v0.6.26 (rapport
+      # `docs/rapports/RAPPORT-publication-v0.6.27.md`).
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -137,8 +145,11 @@ jobs:
         run: |
           echo "Vérification des fins de ligne des migrations (LF attendu)"
           ! git ls-files --eol gds-core/migrations | grep -v 'i/lf.*w/lf'
+      # Même version épinglée que partout (voir `rust-toolchain.toml`).
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -305,6 +316,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          # Version épinglée, identique à `rust-toolchain.toml` : on fabrique
+          # avec le compilateur exact qui a passé les tests.
+          toolchain: "1.95.0"
           targets: ${{ matrix.rust_target }}
 
       - name: Cache Rust (compilation à froid)
@@ -471,6 +485,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          # Version épinglée, identique à `rust-toolchain.toml`.
+          toolchain: "1.95.0"
           targets: x86_64-unknown-linux-gnu
 
       - name: Cache Rust (compilation à froid)

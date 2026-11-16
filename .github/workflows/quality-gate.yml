@@ -88,8 +88,16 @@ jobs:
             libssl-dev \
             libgtk-3-dev
 
+      # Version de Rust ÉPINGLÉE : la MÊME que `rust-toolchain.toml` (source de
+      # référence du numéro) et que celle du poste de développement. Sans cela,
+      # `@stable` installe la dernière stable du JOUR : le contrôle ne compile
+      # plus avec le même compilateur que le poste, et un écart d'environnement
+      # devient indiscernable d'un vrai défaut (v0.6.26 bloquée là-dessus,
+      # `docs/rapports/RAPPORT-publication-v0.6.27.md`).
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -162,8 +170,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Même version épinglée que le reste du dépôt (`rust-toolchain.toml`) :
+      # la branche Apple doit être compilée par le MÊME compilateur.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
 
       - name: Setup Node
         uses: actions/setup-node@v7
