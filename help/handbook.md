@@ -3072,9 +3072,12 @@ uniquement un bloc d'instructions dans le prompt système.
   systématique). Le dossier projet utilise le **nom du projet** (dernier
   segment du chemin), avec repli sur le chemin complet en cas de collision
   entre clients.
-- **Garantie technique** : l'Assistant ne peut **jamais** écrire hors de
-  `~/.pilot/assistant/` (une extension dédiée bloque toute écriture dans les
-  projets). La base SQLite reste la **source de vérité** pour le suivi
+- **Garde technique (partielle)** : l'extension `pilot-assistant-files` refuse
+  les outils `write`/`edit` dont le chemin **réel** (liens symboliques suivis)
+  sort de `~/.pilot/assistant/`, et refuse aussi en cas de doute (chemin
+  manquant ou invalide, segment `..`, erreur de résolution ou de droits). Elle
+  ne couvre **pas** `bash` ni les autres outils, et ne peut exclure un lien
+  modifié entre la vérification et l'écriture. La base SQLite reste la **source de vérité** pour le suivi
   structuré (tâches, décisions, statuts).
 
 ### Poser des questions à l'utilisateur
@@ -4168,12 +4171,14 @@ projets/tâches et sa configuration) pour la déplacer d'un ordinateur à l'autr
   automatiquement sur l'onglet Assistant **si celui-ci est ouvert** (assistant
   activé). Si l'utilisateur n'utilise pas l'assistant, rien n'est forcé.
 
-### Lecture seule — garantie
-- L'Assistant est **strictement en lecture seule** sur vos projets : il ne
-  peut pas écrire dedans. Seul son **espace dédié** `~/.pilot/assistant/` et
-  sa base de données (dans `~/.pilot/`) sont modifiables par lui.
-- Cette garantie est **technique** (extension qui bloque toute écriture hors
-  de l'espace dédié), pas seulement une consigne système.
+### Lecture seule — portée réelle
+- L'Assistant n'a **pas d'outil d'écriture de fichiers** sur vos projets : ses
+  outils d'édition de fichiers sont refusés hors de son **espace dédié**
+  `~/.pilot/assistant/` (et de sa base de données dans `~/.pilot/`).
+- Cette restriction est appliquée par une extension (`pilot-assistant-files`)
+  et pas seulement par une consigne système, mais elle porte **uniquement sur
+  les outils de fichier** : elle **ne filtre pas les commandes shell** (Bash).
+  Ce n'est donc pas une garantie absolue de non-écriture.
 
 ### Relance automatique (anti-blocage)
 - L'Assistant **ne s'arrête pas au premier obstacle**. Si une tâche déléguée ou
